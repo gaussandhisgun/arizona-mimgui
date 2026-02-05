@@ -286,6 +286,7 @@ function arz.onArizonaDisplay(packet)
 			return false
 		end
 	end
+	
 	if string.find(packet.text, "cef.modals.closeModal") then
 		local modal = decodeJson(string.match(packet.text, '`(.*)`'))[1]
 		print(modal)
@@ -450,8 +451,8 @@ local npcDialogFrame = gui.OnFrame(
 	function(player)
 		local sx, sy = getScreenResolution()
 		gui.SetNextWindowPos(gui.ImVec2(sx - 10, sy - 10), 0, gui.ImVec2(1, 1))
-		gui.SetNextWindowSizeConstraints(gui.ImVec2(500, 0), gui.ImVec2(sx, sy))
-		gui.Begin("npc", gui.new.bool(s.toast.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize)
+		gui.SetNextWindowSizeConstraints(gui.ImVec2(300, 0), gui.ImVec2(sx, sy))
+		gui.Begin("npc", gui.new.bool(s.npc.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize)
 		if not s.npc.title == "" then gui.Text(u8(s.npc.title)) end
 		gui.TextWrapped(u8(string.gsub(s.npc.text, "<br>", "\n")))
 		for i,v in pairs(s.npc.buttons) do
@@ -465,7 +466,18 @@ local npcDialogFrame = gui.OnFrame(
 )
 
 -- fUCKING CARS MENU
-
+local carsFrame = gui.OnFrame(
+	function() return s.cars.visible end,
+	function(player)
+		local sx, sy = getScreenResolution()
+		gui.SetNextWindowPos(gui.ImVec2(sx, sy/2), 0, gui.ImVec2(1, 0.5))
+		gui.SetNextWindowSizeConstraints(gui.ImVec2(300, 0), gui.ImVec2(300, sy))
+		gui.Begin("cars", gui.new.bool(s.cars.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize)
+		gui.Text(u8"Мой автопарк")
+		gui.TextDisabled(u8("Слоты: " .. s.cars.count .. "/" .. s.cars.max))
+		gui.End()
+	end
+)
 
 ------------------------------------------- MIMGUI FANCIES --------------------------------------------------
 
