@@ -266,6 +266,22 @@ function arz.onArizonaDisplay(packet)
 		--return false
 	end
 	
+	if string.find(packet.text, "event.vehicleMenu.pushVehicleItem") then
+		local data = decodeJson(string.match(packet.text, '`(.*)`'))[1]
+		--print(DeepPrint(data))
+		table.insert(s.cars.vehicles, data)
+	end
+	
+	if string.find(packet.text, "event.vehicleMenu.setVehicleUsedSlot") then
+		local e = string.match(packet.text, '`%[(%d+)%]`')
+		s.cars.count = e
+	end
+	
+	if string.find(packet.text, "event.vehicleMenu.setVehicleMaxSlot") then
+		local e = string.match(packet.text, '`%[(%d+)%]`')
+		s.cars.max = e
+	end
+	
 	if string.find(packet.text, "event.notify.initialize") then
 		local data = string.match(packet.text, '`(.*)`')
 		data = decodeJson(data)
@@ -301,6 +317,7 @@ function arz.onArizonaDisplay(packet)
 		end
 		if modal == "carMenu" then
 			s.cars.visible = false
+			s.cars.vehicles = {}
 		end
 	end
 	
@@ -475,6 +492,51 @@ local carsFrame = gui.OnFrame(
 		gui.Begin("cars", gui.new.bool(s.cars.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize)
 		gui.Text(u8"Мой автопарк")
 		gui.TextDisabled(u8("Слоты: " .. s.cars.count .. "/" .. s.cars.max))
+		
+		for i,v in pairs(s.cars.vehicles) do -- favs
+			if v.favorite > 0 then
+				gui.BeginChild("car"..i, gui.ImVec2(280, 100), true)
+				gui.TextInColor("" .. v.id, gui.ImVec4(1, 1, 0, 1))
+				gui.SameLine()
+				gui.Text(u8(v.title))
+				gui.Text("" .. v.status)
+				gui.Text(u8"Редкость: ")
+				gui.SameLine()
+				rarity(v.rarity)
+				gui.SameLine()
+				gui.TextDisabled(u8("" .. v.rarityLevel))
+				
+				for u,w in pairs(v.labels) do
+					gui.Text(u8(w.title))
+					gui.SameLine()
+				end
+				
+				gui.EndChild()
+			end
+		end
+		
+		for i,v in pairs(s.cars.vehicles) do -- non favs
+			if v.favorite == 0 then
+				gui.BeginChild("car"..i, gui.ImVec2(280, 100), true)
+				gui.Text("" .. v.id)
+				gui.SameLine()
+				gui.Text(u8(v.title))
+				gui.Text("" .. v.status)
+				gui.Text(u8"Редкость: ")
+				gui.SameLine()
+				rarity(v.rarity)
+				gui.SameLine()
+				gui.TextDisabled(u8("" .. v.rarityLevel))
+				
+				for u,w in pairs(v.labels) do
+					gui.Text(u8(w.title))
+					gui.SameLine()
+				end
+				
+				gui.EndChild()
+			end
+		end
+		
 		gui.End()
 	end
 )
@@ -502,6 +564,12 @@ gui.HintButton = function(button, name)
 	gui.PopStyleColor()
 	gui.SameLine()
 	gui.Text(name)
+end
+
+gui.TextInColor = function(text, color)
+	gui.PushStyleColor(gui.Col.Text, color)
+	gui.Text(text)
+	gui.PopStyleColor()
 end
 
 gui.TimerTypeText = function(type)
@@ -584,4 +652,21 @@ function themeExample()
     gui.GetStyle().Colors[gui.Col.PlotHistogram]          = ImVec4(0.90, 0.70, 0.00, 1.00)
     gui.GetStyle().Colors[gui.Col.PlotHistogramHovered]   = ImVec4(1.00, 0.60, 0.00, 1.00)
     gui.GetStyle().Colors[gui.Col.TextSelectedBg]         = ImVec4(0.98, 0.26, 0.26, 0.35)
+end
+
+function rarity(rar)
+	if tonumber(rar) then
+		local r = tonumber(rar)
+		if r == 0 then
+			return gui.TextInColor(u8"Не определена", gui.ImVec4(0.7, 0.7, 0.7, 1))
+		elseif r == 1 then
+			return gui.TextInColor(u8"Хлам", gui.ImVec4(0.7, 0.7, 0.7, 1))
+		elseif r == 2 then
+			return gui.TextInColor(u8"Обычный", gui.ImVec4(0.5, 0.5, 1.0, 1))
+		elseif r == 3 then
+			return gui.TextInColor(u8"Легендарный", gui.ImVec4(1, 1, 0.2, 1))
+		end
+	else
+		return gui.TextInColor(u8"Не определена", gui.ImVec4(1, 0.7, 0.7, 1))
+	end
 end
