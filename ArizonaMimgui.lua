@@ -2,13 +2,28 @@ local ev = require "samp.events"
 local _, nt = pcall(import, "lib/imgui_notf.lua") -- modified to handle colors
 local arz = require "arizona-events"
 local fa = require('fAwesome6')
+local mc_compat = false
+local gui = require "mimgui"
+local vk = require "vkeys"
+local ffi = require "ffi"
+local enc = require "encoding"
+enc.default = "CP1251"
+local u8 = enc.UTF8
+
 
 local cfg = require "inicfg"
+
+local cfgOpenerDialog = {
+	id = 0,
+	item = 0
+}
 
 c = cfg.load({
 main = {
 	disableOriginalInterfaces = true,
 	useCustomTimer = false,
+	leftAlignedCars = false,
+	centeredCarInfoPanel = true,
 },
 }, "../ArizonaMimgui/config.ini")
 
@@ -17,6 +32,9 @@ function save()
 end
 
 s = {
+	settings = {
+		visible = gui.new.bool(false),
+	},
 	timer = {
 		visible = false,
 		type = "Unknown",
@@ -136,17 +154,6 @@ bonusname = {
 	[18] = "Качественная резина",
 	[26] = "Повышенная максимальная скорость",
 }
-
-local mc_compat = false
-
-local TIMER_ENABLED = false
-
-local gui = require "mimgui"
-local vk = require "vkeys"
-local ffi = require "ffi"
-local enc = require "encoding"
-enc.default = "CP1251"
-local u8 = enc.UTF8
 
 ffi.cdef('struct CVector2D {float x, y;}')
 local CRadar_TransformRealWorldPointToRadarSpace = ffi.cast('void (__cdecl*)(struct CVector2D*, struct CVector2D*)', 0x583530)
@@ -358,14 +365,14 @@ function arz.onArizonaDisplay(packet)
 		return not c.main.disableOriginalInterfaces
 	end
 	
-	if string.find(packet.text, "event.battlepass.MenuPressKeyBattlePass") then
+	--[[if string.find(packet.text, "event.battlepass.MenuPressKeyBattlePass") then
 		local data = string.match(packet.text, '`(.*)`')
 		data = decodeJson(data)
 		if data[2] ~= "" then
 			nt.addNotification(data[2] .. "\n" .. data[3], 10)
 			return not c.main.disableOriginalInterfaces
 		end
-	end
+	end]]
 	
 	if string.find(packet.text, "cef.modals.closeModal") then
 		local modal = decodeJson(string.match(packet.text, '`(.*)`'))[1]
@@ -575,15 +582,40 @@ local npcDialogFrame = gui.OnFrame(
 	end
 )
 
+-- settings for the mod
+local settingsFrame = gui.OnFrame(
+	function() return s.settings.visible[0] end,
+	function(player)
+		local sx, sy = getScreenResolution()
+		gui.SetNextWindowPos(gui.ImVec2(sx/2, sy/2), 0, gui.ImVec2(0.5, 0.5))
+		gui.SetNextWindowSizeConstraints(gui.ImVec2(300, 0), gui.ImVec2(300, sy))
+		gui.Begin("settings", s.settings.visible, gui.WindowFlags.AlwaysAutoResize)
+		
+		for i,v in pairs(c.main) do
+			gui.Checkbox(u8(i), gui.new.bool(v))
+			if gui.IsItemClicked() then
+				c.main[i] = not c.main[i]
+				save()
+			end
+		end
+		
+		gui.End()
+	end
+)
+
 -- fUCKING CARS MENU
 local carsFrame = gui.OnFrame(
 	function() return s.cars.visible and not sampIsDialogActive() and not sampIsChatInputActive() end,
 	function(player)
 		local sx, sy = getScreenResolution()
-		gui.SetNextWindowPos(gui.ImVec2(0 --[[sx]], sy/2), 0, gui.ImVec2(0 --[[1]], 0.5))
+		gui.SetNextWindowPos(gui.ImVec2((c.main.leftAlignedCars and 0 or sx), sy/2), 0, gui.ImVec2((c.main.leftAlignedCars and 0 or 1), 0.5))
 		gui.SetNextWindowSizeConstraints(gui.ImVec2(300, 0), gui.ImVec2(300, sy))
 		gui.Begin("cars", gui.new.bool(s.cars.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize)
 		gui.Text(u8"Мой автопарк")
+		gui.SameLine()
+		if gui.Button(u8"Рейтинг") then
+			sendcef("vehicleMenu.openRating")
+		end
 		gui.SameLine()
 		if gui.Button(u8"Закрыть") then
 			sendcef("vehicleMenu.close")
@@ -678,7 +710,11 @@ local carInfoFrame = gui.OnFrame(
 	function() return s.carinfo.visible and not sampIsDialogActive() and not sampIsChatInputActive() end,
 	function(player)
 		local sx, sy = getScreenResolution()
-		gui.SetNextWindowPos(gui.ImVec2(sx/2, sy/2), 0, gui.ImVec2(0.5, 0.5))
+		if c.main.centeredCarInfoPanel then
+			gui.SetNextWindowPos(gui.ImVec2(sx/2, sy/2), 0, gui.ImVec2(0.5, 0.5))
+		else
+			gui.SetNextWindowPos(gui.ImVec2((c.main.leftAlignedCars and 0 or sx), sy/2), 0, gui.ImVec2((c.main.leftAlignedCars and 0 or 1), 0.5))
+		end
 		gui.SetNextWindowSizeConstraints(gui.ImVec2(400, 0), gui.ImVec2(400, sy))
 		gui.Begin("carinfo", gui.new.bool(s.carinfo.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize)
 		if gui.Button(u8("«")) then
@@ -746,6 +782,21 @@ local carInfoFrame = gui.OnFrame(
 		end
 		gui.Columns(1)
 		gui.Separator()
+		
+		gui.Columns(2)
+		for i,v in pairs(s.carinfo.radials) do
+			gui.ProgressBar(v.value / v.maxValue, nil, u8(v.title .. ": " .. v.value .. "/" .. v.maxValue .. v.postfix))
+			gui.NextColumn()
+		end
+		gui.Columns(1)
+		gui.Separator()
+		gui.Columns(2)
+		for i,v in pairs(s.carinfo.stats) do
+			gui.TextInColor(u8(v.title), gui.ImVec4(1, 1, 0.7, 1))
+			gui.NextColumn()
+			gui.Text(u8(v.value))
+			gui.NextColumn()
+		end
 		gui.End()
 	end
 )
@@ -923,4 +974,28 @@ function gui.Hint(str_id, hint, delay)
             gui.SetTooltip(hint)
         end
     end
+end
+
+function ev.onShowDialog(id, style, title, left, right, content)
+	if closeNextDialog then
+		closeNextDialog = false
+		sampSendDialogResponse(id, 0, 0, "")
+		return false
+	end
+	if title:find("Кастомизация интерфейса") and style == 5 then
+		local c = 1
+		for i in string.gmatch(content, "\n") do c = c + 1 end
+		content = content .. "\n{ff6666}[" .. c .. "]{ffffff} Настройки Arizona Mimgui\t{cccccc}Открыть"
+		cfgOpenerDialog = {id = id, item = c-1}
+		return {id, style, title, left, right, content}
+	end
+	--print(id, style, title, left, right, content)
+end
+
+function ev.onSendDialogResponse(id, button, list, text)
+	if id == cfgOpenerDialog.id and button == 1 and list == cfgOpenerDialog.item then
+		s.settings.visible[0] = true
+		closeNextDialog = true
+		return {id, 0, 0, ""}
+	end
 end
