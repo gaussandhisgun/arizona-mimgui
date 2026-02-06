@@ -4,13 +4,18 @@ local arz = require "arizona-events"
 local fa = require('fAwesome6')
 local mc_compat = false
 local gui = require "mimgui"
+local memory = require "memory"
 local vk = require "vkeys"
 local ffi = require "ffi"
-local effil = require "effil"
 local enc = require "encoding"
 enc.default = "CP1251"
 local u8 = enc.UTF8
 
+local copas = require "copas"
+local socket = require "socket"
+local http = require "copas.http"
+
+local cachedir = getWorkingDirectory() .. "/ArizonaMimgui/icon-cache/"
 
 local cfg = require "inicfg"
 
@@ -133,6 +138,8 @@ s = {
 	},
 }
 
+imagesbuffer = {}
+
 bonusname = {
 	[0] = "Ржавеет",
 	[1] = "Разбитые стёкла",
@@ -163,7 +170,86 @@ bonusname = {
 	[26] = "Повышенная максимальная скорость",
 }
 
+cdn = {
+	res = {
+		["0"] = 'https://cdn.azresources.cloud',
+  		["1"] = 'https://reserve-cdn.azresources.cloud',
+	},
+	sounds = {
+		["0"] = 'https://cdn.azsounds.cloud',
+  		["1"] = 'https://reserve-cdn.azsounds.cloud',
+	},
+	serverapi = {
+		["0"] = 'https://server-api.arizona.games',
+		["1"] = 'https://reserve-server-api.arizona.games',
+	},
+}
+
 ffi.cdef('struct CVector2D {float x, y;}')
+
+ffi.cdef('const char* GetCommandLineA(void);')
+
+local cmdline = ffi.string(ffi.C.GetCommandLineA())
+local rescdn, soundcdn, apicdn = cmdline:match("-cdn (%d),(%d),(%d)")
+if not rescdn then rescdn = 0 end
+if not soundcdn then soundcdn = 0 end
+if not apicdn then apicdn = 0 end
+--print("CDN", rescdn, soundcdn, apicdn)
+
+function httpRequest(request, body, handler) -- copas.http
+    -- start polling task
+    if not copas.running then
+        copas.running = true
+        lua_thread.create(function()
+            wait(0)
+            while not copas.finished() do
+                local ok, err = copas.step(0)
+                if ok == nil then error(err) end
+                wait(0)
+            end
+            copas.running = false
+        end)
+    end
+    -- do request
+    if handler then
+        return copas.addthread(function(r, b, h)
+            copas.setErrorHandler(function(err) h(nil, err) end)
+            h(http.request(r, b))
+        end, request, body, handler)
+    else
+        local results
+        local thread = copas.addthread(function(r, b)
+            copas.setErrorHandler(function(err) results = {nil, err} end)
+            results = table.pack(http.request(r, b))
+        end, request, body)
+        while coroutine.status(thread) ~= 'dead' do wait(0) end
+        return table.unpack(results)
+    end
+end
+
+local function download_file(url, file_path)
+    -- Make an asynchronous HTTP GET request using copas.http.request
+    print(url, "»", file_path)
+    local body, status, headers, err = httpRequest(url)
+	
+	print(status)
+	
+    if status == 200 then
+        -- Open the local file in write mode
+        local file, file_err = io.open(file_path, "wb")
+        if file then
+            -- Write the downloaded body to the file
+            file:write(body)
+            file:close()
+            print("Successfully downloaded " .. url .. " to " .. file_path)
+        else
+            print("Error opening file: " .. file_err)
+        end
+    else
+        print("Error downloading file: HTTP status " .. status .. " (" .. tostring(err) .. ")")
+    end
+end
+
 local CRadar_TransformRealWorldPointToRadarSpace = ffi.cast('void (__cdecl*)(struct CVector2D*, struct CVector2D*)', 0x583530)
 local CRadar_TransformRadarPointToScreenSpace = ffi.cast('void (__cdecl*)(struct CVector2D*, struct CVector2D*)', 0x583480)
 local CRadar_IsPointInsideRadar = ffi.cast('bool (__cdecl*)(struct CVector2D*)', 0x584D40)
@@ -597,6 +683,7 @@ local npcDialogFrame = gui.OnFrame(
 )
 
 -- settings for the mod
+
 local settingsFrame = gui.OnFrame(
 	function() return s.settings.visible[0] end,
 	function(player)
@@ -613,9 +700,40 @@ local settingsFrame = gui.OnFrame(
 			end
 		end
 		
+		gui.WebImage(cdn.res[rescdn] .. "/projects/arizona-rp/assets/images/inventory/vehicles/512/1272.png", gui.ImVec2(200, 200))
+		
+		--[[if gui.Button("Test download") then
+			lua_thread.create(function()
+				printStringNow("ye downloadin", 1000)
+				download_file(cdn.res[rescdn] .. "/projects/arizona-rp/assets/images/inventory/vehicles/512/1267.png", getWorkingDirectory() .. "/ArizonaMimgui/icon-cache/assets/images/inventory/vehicles/512/test.png")
+				printStringNow("done", 1000)
+				loaded = true
+			end)
+		end]]
+		
 		gui.End()
 	end
 )
+
+function gui.WebImage(url, size)
+	if imagesbuffer[url] == nil then
+		imagesbuffer[url] = -1
+		lua_thread.create(function(url, size)
+			local cachepath = cachedir .. url:gsub(".*/assets", "assets")
+			local file, file_err = io.open(cachepath)
+			if not file then
+				download_file(url, cachepath)
+				file, file_err = io.open(cachepath)
+			end
+			imagesbuffer[url] = gui.CreateTextureFromFile(cachepath)
+		end, url, size)
+	end
+	if imagesbuffer[url] == -1 then
+		gui.Dummy(size)
+	else
+		gui.Image(imagesbuffer[url], size)
+	end
+end
 
 -- fUCKING CARS MENU
 local carsFrame = gui.OnFrame(
@@ -664,6 +782,12 @@ local carsFrame = gui.OnFrame(
 
 function gui.CarInfoCard(i, v)
 	gui.BeginChild("car"..i, gui.ImVec2(280, 120), true)
+	if v.sysName then
+		gui.SetCursorPos(gui.ImVec2(100, 0))
+		--print(rescdn, cdn.res[rescdn], "/projects/arizona-rp/assets/images/inventory/vehicles/512/", v.sysName)
+		gui.WebImage(cdn.res[rescdn] .. "/projects/arizona-rp/assets/images/inventory/vehicles/512/" .. v.sysName, gui.ImVec2(180, 110))
+	end
+	gui.SetCursorPos(gui.ImVec2(5,5))
 	if v.favorite > 0 then
 		gui.PushStyleColor(gui.Col.Button, gui.ImVec4(1, 1, 0, 1))
     		gui.PushStyleColor(gui.Col.ButtonHovered, gui.ImVec4(0.8, 0.8, 0, 1))
@@ -853,140 +977,6 @@ gui.TimerTypeText = function(type)
 		gui.Text(u8(type))
 	end
 end
-
-local md5 = require "md5"
-
-gui.ImageURL = {
-    cache_dir = getWorkingDirectory() .. "/resource/cache",
-    download_statuses = {
-        INIT = 0,
-        DOWNLOADING = 1,
-        ERROR = 2,
-        SAVED = 3,
-        NOT_MODIFIED = 4,
-        CACHE_ONLY = 5
-    },
-    pool = {}
-}
-
-function gui.ImageURL:set_cache(url, image_data, headers)
-    if not doesDirectoryExist(self.cache_dir) then
-        createDirectory(self.cache_dir)
-    end
-
-    local path = ("%s/%s"):format(self.cache_dir, md5.sumhexa(url))
-    local file, err = io.open(path, "wb")
-    if not file then
-        return nil
-    end
-
-    local data = { Data = tostring(image_data) }
-    if headers["etag"] then
-        data["Etag"] = headers["etag"]
-    end
-    if headers["last-modified"] then
-        data["Last-Modified"] = headers["last-modified"]
-    end
-
-    file:write(encodeJson(data))
-    file:close()
-    return path
-end
-
-function gui.ImageURL:get_cache(url)
-    local path = ("%s/%s"):format(self.cache_dir, md5.sumhexa(url))
-    if not doesFileExist(path) then
-        return nil, nil
-    end
-
-    local image_data = nil
-    local cached_headers = {}
-
-    local file, err = io.open(path, "rb")
-    if file then
-        local cache = decodeJson(file:read("*a"))
-        if type(cache) ~= "table" then
-            return nil, nil
-        end
-
-        if cache["Data"] ~= nil then
-               image_data = cache["Data"]
-           end
-           if cache["Last-Modified"] ~= nil then
-               cached_headers["If-Modified-Since"] = cache["Last-Modified"]
-           end
-           if cache["Etag"] ~= nil then
-               cached_headers["If-None-Match"] = cache["Etag"]
-           end
-
-        file:close()
-    end
-    return image_data, cached_headers
-end
-
-function gui.ImageURL:download(url, preload_cache)
-    local st = self.download_statuses
-    self.pool[url] = {
-        status = st.DOWNLOADING,
-        image = nil,
-        error = nil
-    }
-    local cached_image, cached_headers = gui.ImageURL:get_cache(url)
-    local img = self.pool[url]
-
-    if preload_cache and cached_image ~= nil then
-        img.image = gui.CreateTextureFromMemory(memory.strptr(cached_image), #cached_image)
-    end
-
-    asyncHttpRequest("GET", url, { headers = cached_headers },
-        function(result)
-            if result.status_code == 200 then
-                img.image = gui.CreateTextureFromMemory(memory.strptr(result.text), #result.text)
-                img.status = st.SAVED
-                gui.ImageURL:set_cache(url, result.text, result.headers)
-            elseif result.status_code == 304 then
-                img.image = img.image or gui.CreateTextureFromMemory(memory.strptr(cached_image), #cached_image)
-                img.status = st.NOT_MODIFIED
-            else
-                img.status = img.image and st.CACHE_ONLY or st.ERROR
-                img.error = ("Error #%s"):format(result.status_code)
-            end
-        end,
-        function(error)
-            img.status = img.image and st.CACHE_ONLY or st.ERROR
-            img.error = error
-        end
-    )
-end
-
-function gui.ImageURL:render(url, size, preload, ...)
-    local st = self.download_statuses
-    local img = self.pool[url]
-
-    if img == nil then
-        self.pool[url] = {
-            status = st.INIT,
-            error = nil,
-            image = nil
-        }
-        img = self.pool[url]
-    end
-
-    if img.status == st.INIT then
-        gui.ImageURL:download(url, preload)
-    end
-        
-    if img.image ~= nil then
-        gui.Image(img.image, size, ...)
-    else
-        gui.Dummy(size)
-    end
-    return img.status, img.error
-end
-
-setmetatable(gui.ImageURL, {
-    __call = gui.ImageURL.render
-})
 
 ------------------------------------------------ THEME -------------------------------------------------------
 
