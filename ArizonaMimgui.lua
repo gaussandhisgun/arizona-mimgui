@@ -1,6 +1,20 @@
 local ev = require "samp.events"
 local _, nt = pcall(import, "lib/imgui_notf.lua") -- modified to handle colors
 local arz = require "arizona-events"
+local fa = require('fAwesome6')
+
+local cfg = require "inicfg"
+
+c = cfg.load({
+main = {
+	disableOriginalInterfaces = true,
+	useCustomTimer = false,
+},
+}, "../ArizonaMimgui/config.ini")
+
+function save()
+	cfg.save(c, "../ArizonaMimgui/config.ini")
+end
 
 s = {
 	timer = {
@@ -89,6 +103,38 @@ s = {
 		max = 1,
 		vehicles = {}
 	},
+	carinfo = {
+		visible = false,
+		info = {},
+		labels = {},
+		toggles = {},
+		buttons = {},
+		radials = {},
+		stats = {},
+	},
+}
+
+bonusname = {
+	[0] = "Ржавеет",
+	[1] = "Разбитые стёкла",
+	[2] = "Чёрный дым",
+	[3] = "Искры из выхлопа",
+	[4] = "Продажа в гос ниже",
+	[5] = "Нет ржавчины или царапин",
+	[6] = "Целые стёкла",
+	[7] = "Стандартный расход топлива",
+	[8] = "Стандартная скорость поломки",
+	[9] = "Стандартная скорость загрязнения",
+	[10] = "Пониженный расход топлива",
+	[11] = "Пониженная скорость износа состояния и масла",
+	[12] = "Транспорт не пачкается",
+	[13] = "Бонус к ХП",
+	[14] = "Бонус к продаже в гос",
+	[15] = "Увеличенное ускорение",
+	[16] = "Бесячие искры",
+	[17] = "Цвет тормозных суппортов",
+	[18] = "Качественная резина",
+	[26] = "Повышенная максимальная скорость",
 }
 
 local mc_compat = false
@@ -181,6 +227,15 @@ function DeepPrint (t)
   return request_headers_all
 end
 
+gui.OnInitialize(function()
+    gui.GetIO().IniFilename = nil
+    local config = gui.ImFontConfig()
+    config.MergeMode = true
+    config.PixelSnapH = true
+    iconRanges = gui.new.ImWchar[3](fa.min_range, fa.max_range, 0)
+    gui.GetIO().Fonts:AddFontFromMemoryCompressedBase85TTF(fa.get_font_data_base85('solid'), 14, config, iconRanges) -- solid - тип иконок, так же есть thin, regular, light и duotone
+end)
+
 function arz.onArizonaDisplay(packet)	
 	if isSampfuncsGlobalVarDefined("ModernControlsInstalled") then
 		mc_compat = true
@@ -215,7 +270,7 @@ function arz.onArizonaDisplay(packet)
 		end
 		
 		--print(DeepPrint(buttons))
-		return false
+		return not c.main.DisableOriginalInterfaces
 	end
 	
 	if string.find(packet.text, "cef.modals.showModal") and string.find(packet.text, "businessInfo") then
@@ -248,7 +303,7 @@ function arz.onArizonaDisplay(packet)
 		s.propertyInfo.description = description
 		s.propertyInfo.cd(tonumber(timer) and tonumber(timer) or 7)
 		--print(DeepPrint(buttons))
-		return false
+		return not c.main.DisableOriginalInterfaces
 	end
 	
 	if string.find(packet.text, "cef.modals.showModal") and string.find(packet.text, "dialogTip") then
@@ -257,19 +312,28 @@ function arz.onArizonaDisplay(packet)
 		s.questHint.text = text
 		--nt.addNotification("[i]: " .. text, 7)
 		--print(DeepPrint(buttons))
-		return false
+		return not c.main.DisableOriginalInterfaces
 	end
 	
 	if string.find(packet.text, "cef.modals.showModal") and string.find(packet.text, "carMenu") then
 		--local text = string.match(packet.text, '"text":%s*"([^"]*)"')
 		s.cars.visible = true
-		--return false
+		s.carinfo.visible = false
+		s.cars.vehicles = {}
+		sendcef("vehicleMenu.loadList")
+		return not c.main.DisableOriginalInterfaces
 	end
 	
 	if string.find(packet.text, "event.vehicleMenu.pushVehicleItem") then
-		local data = decodeJson(string.match(packet.text, '`(.*)`'))[1]
-		--print(DeepPrint(data))
-		table.insert(s.cars.vehicles, data)
+		if not string.find(packet.text, '`%[%s*null%s*%]`') then
+			local data = decodeJson(string.match(packet.text, '`(.*)`'))[1]
+			--print(DeepPrint(data))
+			local exists = false
+			for i,v in pairs(s.cars.vehicles) do
+				if v.id == data.id then exists = true end
+			end
+			if not exists then table.insert(s.cars.vehicles, data) end
+		end
 	end
 	
 	if string.find(packet.text, "event.vehicleMenu.setVehicleUsedSlot") then
@@ -291,7 +355,7 @@ function arz.onArizonaDisplay(packet)
 		s.toast.description = data[3]
 		s.toast.cd(data[4])
 		--nt.addNotification("[" .. data[1] .. "] " .. data[2] .. "\n" .. data[3], data[4] / 1000)
-		return false
+		return not c.main.DisableOriginalInterfaces
 	end
 	
 	if string.find(packet.text, "event.battlepass.MenuPressKeyBattlePass") then
@@ -299,7 +363,7 @@ function arz.onArizonaDisplay(packet)
 		data = decodeJson(data)
 		if data[2] ~= "" then
 			nt.addNotification(data[2] .. "\n" .. data[3], 10)
-			return false
+			return not c.main.DisableOriginalInterfaces
 		end
 	end
 	
@@ -317,6 +381,7 @@ function arz.onArizonaDisplay(packet)
 		end
 		if modal == "carMenu" then
 			s.cars.visible = false
+			s.carinfo.visible = false
 			s.cars.vehicles = {}
 		end
 	end
@@ -333,7 +398,7 @@ function arz.onArizonaDisplay(packet)
 	if string.find(packet.text, "event.setActiveView") then
 		if string.find(packet.text, '`%["NpcDialog"%]`') then
 			s.npc.visible = true
-			return false
+			return not c.main.DisableOriginalInterfaces
 		end
 		
 		if string.find(packet.text, "'%[%s*null%s*%]'") then
@@ -341,13 +406,41 @@ function arz.onArizonaDisplay(packet)
 		end
 	end
 	
+	if string.find(packet.text, "event.vehicleMenu.setVehicleInfoList") then
+		s.carinfo.visible = true
+	end
+	
+	if string.find(packet.text, "event.vehicleMenu.pushLabels") then
+		s.carinfo.labels = decodeJson(string.match(packet.text, '`(.*)`'))[1]
+	end
+	
+	if string.find(packet.text, "event.vehicleMenu.initializeVehicleInformation") then
+		s.carinfo.info = decodeJson(string.match(packet.text, '`(.*)`'))[1]
+	end
+	
+	if string.find(packet.text, "event.vehicleMenu.pushToggles") then
+		s.carinfo.toggles = decodeJson(string.match(packet.text, '`(.*)`'))[1]
+	end
+	
+	if string.find(packet.text, "event.vehicleMenu.pushActions") then
+		s.carinfo.buttons = decodeJson(string.match(packet.text, '`(.*)`'))[1]
+	end
+	
+	if string.find(packet.text, "event.vehicleMenu.pushRadials") then
+		s.carinfo.radials = decodeJson(string.match(packet.text, '`(.*)`'))[1]
+	end
+	
+	if string.find(packet.text, "event.vehicleMenu.pushStats") then
+		s.carinfo.stats = decodeJson(string.match(packet.text, '`(.*)`'))[1]
+	end
+	
 	-- TODO: these return falses break phone, reimplement phone first
 	
-	if TIMER_ENABLED then
+	if c.main.useCustomTimer then
 		if string.find(packet.text, "event.arizonahud.updateCustomizedCounterVisibility") then
 			local data = decodeJson(string.match(packet.text, '`(.*)`'))[1]
 			s.timer.visible = data
-			return not data
+			return not data and not c.main.DisableOriginalInterfaces
 		end
 		
 		if string.find(packet.text, "event.customizedCounter.initializeType") then
@@ -484,59 +577,175 @@ local npcDialogFrame = gui.OnFrame(
 
 -- fUCKING CARS MENU
 local carsFrame = gui.OnFrame(
-	function() return s.cars.visible end,
+	function() return s.cars.visible and not sampIsDialogActive() and not sampIsChatInputActive() end,
 	function(player)
 		local sx, sy = getScreenResolution()
-		gui.SetNextWindowPos(gui.ImVec2(sx, sy/2), 0, gui.ImVec2(1, 0.5))
+		gui.SetNextWindowPos(gui.ImVec2(0 --[[sx]], sy/2), 0, gui.ImVec2(0 --[[1]], 0.5))
 		gui.SetNextWindowSizeConstraints(gui.ImVec2(300, 0), gui.ImVec2(300, sy))
 		gui.Begin("cars", gui.new.bool(s.cars.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize)
 		gui.Text(u8"Мой автопарк")
+		gui.SameLine()
+		if gui.Button(u8"Закрыть") then
+			sendcef("vehicleMenu.close")
+		end
 		gui.TextDisabled(u8("Слоты: " .. s.cars.count .. "/" .. s.cars.max))
 		
-		for i,v in pairs(s.cars.vehicles) do -- favs
-			if v.favorite > 0 then
-				gui.BeginChild("car"..i, gui.ImVec2(280, 100), true)
-				gui.TextInColor("" .. v.id, gui.ImVec4(1, 1, 0, 1))
-				gui.SameLine()
-				gui.Text(u8(v.title))
-				gui.Text("" .. v.status)
-				gui.Text(u8"Редкость: ")
-				gui.SameLine()
-				rarity(v.rarity)
-				gui.SameLine()
-				gui.TextDisabled(u8("" .. v.rarityLevel))
-				
-				for u,w in pairs(v.labels) do
-					gui.Text(u8(w.title))
-					gui.SameLine()
-				end
-				
-				gui.EndChild()
+		for i,v in pairs(s.cars.vehicles) do -- favs, loaded
+			if v.favorite > 0 and v.status == "loaded" then
+				gui.CarInfoCard(i, v)
+			end
+		end
+	
+		for i,v in pairs(s.cars.vehicles) do -- non favs, loaded
+			if v.favorite == 0 and v.status == "loaded" then
+				gui.CarInfoCard(i, v)
 			end
 		end
 		
-		for i,v in pairs(s.cars.vehicles) do -- non favs
-			if v.favorite == 0 then
-				gui.BeginChild("car"..i, gui.ImVec2(280, 100), true)
-				gui.Text("" .. v.id)
-				gui.SameLine()
-				gui.Text(u8(v.title))
-				gui.Text("" .. v.status)
-				gui.Text(u8"Редкость: ")
-				gui.SameLine()
-				rarity(v.rarity)
-				gui.SameLine()
-				gui.TextDisabled(u8("" .. v.rarityLevel))
-				
-				for u,w in pairs(v.labels) do
-					gui.Text(u8(w.title))
-					gui.SameLine()
-				end
-				
-				gui.EndChild()
+		for i,v in pairs(s.cars.vehicles) do -- favs, not loaded
+			if v.favorite > 0 and v.status ~= "loaded" then
+				gui.CarInfoCard(i, v)
 			end
 		end
 		
+		for i,v in pairs(s.cars.vehicles) do -- non favs, not loaded
+			if v.favorite == 0 and v.status ~= "loaded" then
+				gui.CarInfoCard(i, v)
+			end
+		end
+	end
+)
+
+function gui.CarInfoCard(i, v)
+	gui.BeginChild("car"..i, gui.ImVec2(280, 120), true)
+	if v.favorite > 0 then
+		gui.PushStyleColor(gui.Col.Button, gui.ImVec4(1, 1, 0, 1))
+    		gui.PushStyleColor(gui.Col.ButtonHovered, gui.ImVec4(0.8, 0.8, 0, 1))
+    		gui.PushStyleColor(gui.Col.ButtonActive, gui.ImVec4(0.6, 0.6, 0, 1))
+    		gui.PushStyleColor(gui.Col.Text, gui.ImVec4(0, 0, 0, 1))
+    	else
+    		gui.PushStyleColor(gui.Col.Button, gui.ImVec4(0.2, 0.2, 0.2, 0.5))
+    		gui.PushStyleColor(gui.Col.ButtonHovered, gui.ImVec4(0.2, 0.2, 0.2, 1))
+    		gui.PushStyleColor(gui.Col.ButtonActive, gui.ImVec4(0.4, 0.4, 0.4, 1))
+    		gui.PushStyleColor(gui.Col.Text, gui.ImVec4(1, 1, 1, 0.7))
+    	end
+	if gui.Button(fa("STAR")) then
+		sendcef("vehicleMenu.vehicle-item.facorite|" .. v.id)
+	end
+	gui.PopStyleColor()
+	gui.PopStyleColor()
+	gui.PopStyleColor()
+	gui.PopStyleColor()
+	gui.Hint("car"..i.."hint", u8("Переключить избранное для машины " .. v.id))
+	gui.SameLine()
+	if v.status == "loaded" then
+		gui.Text(u8(v.title))
+	else
+		gui.TextDisabled(u8(v.title))
+	end
+	--gui.Text("" .. v.status)
+	gui.Text(u8"Редкость: ")
+	gui.SameLine()
+	rarity(v.rarity)
+	gui.SameLine()
+	gui.TextDisabled(u8("" .. v.rarityLevel))
+	
+	gui.PushStyleColor(gui.Col.Button, gui.ImVec4(0.2, 0.2, 0.2, 0.5))
+	gui.PushStyleColor(gui.Col.ButtonHovered, gui.ImVec4(0.2, 0.2, 0.2, 1))
+	gui.PushStyleColor(gui.Col.ButtonActive, gui.ImVec4(0.2, 0.2, 0.2, 1))
+	gui.PushStyleColor(gui.Col.Text, gui.ImVec4(1, 1, 1, 1))
+	
+	for u,w in pairs(v.labels) do
+		gui.Button(u8(w.title))
+		gui.SameLine()
+	end
+	
+	gui.PopStyleColor()
+	gui.PopStyleColor()
+	gui.PopStyleColor()
+	gui.PopStyleColor()
+	
+	gui.NewLine()
+	if gui.Button(u8"Подробнее") then
+		sendcef("vehicleMenu.loadVehicleInfo|" .. v.id)
+	end
+	
+	gui.EndChild()
+end
+
+-- car info page
+local carInfoFrame = gui.OnFrame(
+	function() return s.carinfo.visible and not sampIsDialogActive() and not sampIsChatInputActive() end,
+	function(player)
+		local sx, sy = getScreenResolution()
+		gui.SetNextWindowPos(gui.ImVec2(sx/2, sy/2), 0, gui.ImVec2(0.5, 0.5))
+		gui.SetNextWindowSizeConstraints(gui.ImVec2(400, 0), gui.ImVec2(400, sy))
+		gui.Begin("carinfo", gui.new.bool(s.carinfo.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize)
+		if gui.Button(u8("«")) then
+			sendcef("vehicleMenu.backToList")
+			s.carinfo.visible = false
+			s.cars.vehicles = {}
+			sendcef("vehicleMenu.loadList")
+		end
+		gui.SameLine()
+		if gui.Button(fa("PEN")) then
+			sendcef("vehicleMenu.rename")
+		end
+		gui.SameLine()
+		gui.Text(u8(s.carinfo.info.title))
+		rarity(s.carinfo.info.rarity)
+		gui.SameLine()
+		gui.TextDisabled("" .. s.carinfo.info.rarityLevel)
+		if #s.carinfo.info.bonuses > 0 then
+			local bns = ""
+			for u,w in pairs(s.carinfo.info.bonuses) do
+				bns = bns .. (bonusname[w.id] and bonusname[w.id] or w.id) .. (w.valueString == "" and "" or (": " .. w.valueString)) .. "\n"		
+			end
+			gui.Hint("hintBonuses", u8(bns))
+		end
+		
+		if s.carinfo.info.ratingPosition then gui.Text(u8("Позиция в рейтинге: " .. s.carinfo.info.ratingPosition)) end
+		
+		gui.PushStyleColor(gui.Col.Button, gui.ImVec4(0.2, 0.2, 0.2, 0.5))
+		gui.PushStyleColor(gui.Col.ButtonHovered, gui.ImVec4(0.2, 0.2, 0.2, 1))
+		gui.PushStyleColor(gui.Col.ButtonActive, gui.ImVec4(0.2, 0.2, 0.2, 1))
+		gui.PushStyleColor(gui.Col.Text, gui.ImVec4(1, 1, 1, 1))
+		
+		for i,v in pairs(s.carinfo.labels) do
+			gui.Button(u8(v.title))
+			local icon = string.gsub(v.icon, "icon-", "")
+			gui.Hint("labelHint" .. i, u8(icon))
+			gui.SameLine()
+		end
+		
+		gui.PopStyleColor()
+		gui.PopStyleColor()
+		gui.PopStyleColor()
+		gui.PopStyleColor()
+		
+		gui.NewLine()
+		gui.Separator()
+		gui.Columns(4)
+		for i,v in pairs(s.carinfo.buttons) do
+			if gui.Button(u8(v.title)) then
+				sendcef("vehicleMenu.buttonClick|"..v.id)
+			end
+			gui.NextColumn()
+		end
+		gui.Columns(1)
+		gui.Separator()
+		gui.Columns(3)
+		
+		for i,v in pairs(s.carinfo.toggles) do
+			local cb = gui.new.bool(v.value == 1)
+			gui.Checkbox(u8(v.title), cb)
+			if gui.IsItemClicked() then
+				sendcef("vehicleMenu.switchToggle|" .. v.id .. "|" .. (v.value == 0 and "true" or "false"))
+			end
+			gui.NextColumn()
+		end
+		gui.Columns(1)
+		gui.Separator()
 		gui.End()
 	end
 )
@@ -669,4 +878,49 @@ function rarity(rar)
 	else
 		return gui.TextInColor(u8"Не определена", gui.ImVec4(1, 0.7, 0.7, 1))
 	end
+end
+
+
+
+function gui.Hint(str_id, hint, delay)
+    local hovered = gui.IsItemHovered()
+    local animTime = 0.2
+    local delay = delay or 0.00
+    local show = true
+
+    if not allHints then allHints = {} end
+    if not allHints[str_id] then
+        allHints[str_id] = {
+            status = false,
+            timer = 0
+        }
+    end
+
+    if hovered then
+        for k, v in pairs(allHints) do
+            if k ~= str_id and os.clock() - v.timer <= animTime  then
+                show = false
+            end
+        end
+    end
+
+    if show and allHints[str_id].status ~= hovered then
+        allHints[str_id].status = hovered
+        allHints[str_id].timer = os.clock() + delay
+    end
+
+    if show then
+        local between = os.clock() - allHints[str_id].timer
+        if between <= animTime then
+            local s = function(f)
+                return f < 0.0 and 0.0 or (f > 1.0 and 1.0 or f)
+            end
+            local alpha = hovered and s(between / animTime) or s(1.00 - between / animTime)
+            gui.PushStyleVarFloat(gui.StyleVar.Alpha, alpha)
+            gui.SetTooltip(hint)
+            gui.PopStyleVar()
+        elseif hovered then
+            gui.SetTooltip(hint)
+        end
+    end
 end
