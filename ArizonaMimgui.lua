@@ -6,6 +6,7 @@ local mc_compat = false
 local gui = require "mimgui"
 local vk = require "vkeys"
 local ffi = require "ffi"
+local effil = require "effil"
 local enc = require "encoding"
 enc.default = "CP1251"
 local u8 = enc.UTF8
@@ -820,8 +821,8 @@ function gui.ColoredButton(text,hex,trans,size)
     local r,g,b = tonumber("0x"..hex:sub(1,2)), tonumber("0x"..hex:sub(3,4)), tonumber("0x"..hex:sub(5,6))
     if tonumber(trans) ~= nil and tonumber(trans) < 101 and tonumber(trans) > 0 then a = trans else a = 60 end
 
-    local button = imgui.Button(text, size)
-    imgui.PopStyleColor(3)
+    local button = gui.Button(text, size)
+    gui.PopStyleColor(3)
     return button
 end
 
@@ -852,6 +853,140 @@ gui.TimerTypeText = function(type)
 		gui.Text(u8(type))
 	end
 end
+
+local md5 = require "md5"
+
+gui.ImageURL = {
+    cache_dir = getWorkingDirectory() .. "/resource/cache",
+    download_statuses = {
+        INIT = 0,
+        DOWNLOADING = 1,
+        ERROR = 2,
+        SAVED = 3,
+        NOT_MODIFIED = 4,
+        CACHE_ONLY = 5
+    },
+    pool = {}
+}
+
+function gui.ImageURL:set_cache(url, image_data, headers)
+    if not doesDirectoryExist(self.cache_dir) then
+        createDirectory(self.cache_dir)
+    end
+
+    local path = ("%s/%s"):format(self.cache_dir, md5.sumhexa(url))
+    local file, err = io.open(path, "wb")
+    if not file then
+        return nil
+    end
+
+    local data = { Data = tostring(image_data) }
+    if headers["etag"] then
+        data["Etag"] = headers["etag"]
+    end
+    if headers["last-modified"] then
+        data["Last-Modified"] = headers["last-modified"]
+    end
+
+    file:write(encodeJson(data))
+    file:close()
+    return path
+end
+
+function gui.ImageURL:get_cache(url)
+    local path = ("%s/%s"):format(self.cache_dir, md5.sumhexa(url))
+    if not doesFileExist(path) then
+        return nil, nil
+    end
+
+    local image_data = nil
+    local cached_headers = {}
+
+    local file, err = io.open(path, "rb")
+    if file then
+        local cache = decodeJson(file:read("*a"))
+        if type(cache) ~= "table" then
+            return nil, nil
+        end
+
+        if cache["Data"] ~= nil then
+               image_data = cache["Data"]
+           end
+           if cache["Last-Modified"] ~= nil then
+               cached_headers["If-Modified-Since"] = cache["Last-Modified"]
+           end
+           if cache["Etag"] ~= nil then
+               cached_headers["If-None-Match"] = cache["Etag"]
+           end
+
+        file:close()
+    end
+    return image_data, cached_headers
+end
+
+function gui.ImageURL:download(url, preload_cache)
+    local st = self.download_statuses
+    self.pool[url] = {
+        status = st.DOWNLOADING,
+        image = nil,
+        error = nil
+    }
+    local cached_image, cached_headers = gui.ImageURL:get_cache(url)
+    local img = self.pool[url]
+
+    if preload_cache and cached_image ~= nil then
+        img.image = gui.CreateTextureFromMemory(memory.strptr(cached_image), #cached_image)
+    end
+
+    asyncHttpRequest("GET", url, { headers = cached_headers },
+        function(result)
+            if result.status_code == 200 then
+                img.image = gui.CreateTextureFromMemory(memory.strptr(result.text), #result.text)
+                img.status = st.SAVED
+                gui.ImageURL:set_cache(url, result.text, result.headers)
+            elseif result.status_code == 304 then
+                img.image = img.image or gui.CreateTextureFromMemory(memory.strptr(cached_image), #cached_image)
+                img.status = st.NOT_MODIFIED
+            else
+                img.status = img.image and st.CACHE_ONLY or st.ERROR
+                img.error = ("Error #%s"):format(result.status_code)
+            end
+        end,
+        function(error)
+            img.status = img.image and st.CACHE_ONLY or st.ERROR
+            img.error = error
+        end
+    )
+end
+
+function gui.ImageURL:render(url, size, preload, ...)
+    local st = self.download_statuses
+    local img = self.pool[url]
+
+    if img == nil then
+        self.pool[url] = {
+            status = st.INIT,
+            error = nil,
+            image = nil
+        }
+        img = self.pool[url]
+    end
+
+    if img.status == st.INIT then
+        gui.ImageURL:download(url, preload)
+    end
+        
+    if img.image ~= nil then
+        gui.Image(img.image, size, ...)
+    else
+        gui.Dummy(size)
+    end
+    return img.status, img.error
+end
+
+setmetatable(gui.ImageURL, {
+    __call = gui.ImageURL.render
+})
 
 ------------------------------------------------ THEME -------------------------------------------------------
 
