@@ -270,7 +270,7 @@ function arz.onArizonaDisplay(packet)
 		end
 		
 		--print(DeepPrint(buttons))
-		return not c.main.DisableOriginalInterfaces
+		return not c.main.disableOriginalInterfaces
 	end
 	
 	if string.find(packet.text, "cef.modals.showModal") and string.find(packet.text, "businessInfo") then
@@ -303,7 +303,7 @@ function arz.onArizonaDisplay(packet)
 		s.propertyInfo.description = description
 		s.propertyInfo.cd(tonumber(timer) and tonumber(timer) or 7)
 		--print(DeepPrint(buttons))
-		return not c.main.DisableOriginalInterfaces
+		return not c.main.disableOriginalInterfaces
 	end
 	
 	if string.find(packet.text, "cef.modals.showModal") and string.find(packet.text, "dialogTip") then
@@ -312,7 +312,7 @@ function arz.onArizonaDisplay(packet)
 		s.questHint.text = text
 		--nt.addNotification("[i]: " .. text, 7)
 		--print(DeepPrint(buttons))
-		return not c.main.DisableOriginalInterfaces
+		return not c.main.disableOriginalInterfaces
 	end
 	
 	if string.find(packet.text, "cef.modals.showModal") and string.find(packet.text, "carMenu") then
@@ -321,7 +321,7 @@ function arz.onArizonaDisplay(packet)
 		s.carinfo.visible = false
 		s.cars.vehicles = {}
 		sendcef("vehicleMenu.loadList")
-		return not c.main.DisableOriginalInterfaces
+		return not c.main.disableOriginalInterfaces
 	end
 	
 	if string.find(packet.text, "event.vehicleMenu.pushVehicleItem") then
@@ -355,7 +355,7 @@ function arz.onArizonaDisplay(packet)
 		s.toast.description = data[3]
 		s.toast.cd(data[4])
 		--nt.addNotification("[" .. data[1] .. "] " .. data[2] .. "\n" .. data[3], data[4] / 1000)
-		return not c.main.DisableOriginalInterfaces
+		return not c.main.disableOriginalInterfaces
 	end
 	
 	if string.find(packet.text, "event.battlepass.MenuPressKeyBattlePass") then
@@ -363,7 +363,7 @@ function arz.onArizonaDisplay(packet)
 		data = decodeJson(data)
 		if data[2] ~= "" then
 			nt.addNotification(data[2] .. "\n" .. data[3], 10)
-			return not c.main.DisableOriginalInterfaces
+			return not c.main.disableOriginalInterfaces
 		end
 	end
 	
@@ -398,7 +398,7 @@ function arz.onArizonaDisplay(packet)
 	if string.find(packet.text, "event.setActiveView") then
 		if string.find(packet.text, '`%["NpcDialog"%]`') then
 			s.npc.visible = true
-			return not c.main.DisableOriginalInterfaces
+			return not c.main.disableOriginalInterfaces
 		end
 		
 		if string.find(packet.text, "'%[%s*null%s*%]'") then
@@ -440,7 +440,7 @@ function arz.onArizonaDisplay(packet)
 		if string.find(packet.text, "event.arizonahud.updateCustomizedCounterVisibility") then
 			local data = decodeJson(string.match(packet.text, '`(.*)`'))[1]
 			s.timer.visible = data
-			return not data and not c.main.DisableOriginalInterfaces
+			return not data and not c.main.disableOriginalInterfaces
 		end
 		
 		if string.find(packet.text, "event.customizedCounter.initializeType") then
