@@ -34,6 +34,9 @@ main = {
 	leftAlignedCars = false,
 	centeredCarInfoPanel = true,
 },
+ui = {
+	density = 1,
+}
 }, "../ArizonaMimgui/config.ini")
 
 function save()
@@ -631,7 +634,7 @@ local toastFrame = gui.OnFrame(
 	function(player)
 		player.HideCursor = true
 		local sx, sy = getScreenResolution()
-		gui.SetNextWindowPos(gui.ImVec2(sx/2, sy - 10), 0, gui.ImVec2(0.5, 1))
+		gui.SetNextWindowPos(gui.ImVec2(sx/2, sy - 10 * c.ui.density), 0, gui.ImVec2(0.5, 1))
 		gui.Begin("toast", gui.new.bool(s.toast.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
 		if s.toast.icon == "success" then gui.TextInColor(fa("CHECK"), gui.ImVec4(0, 1, 0, 1))
 		elseif s.toast.icon == "error" then gui.TextInColor(fa("EXCLAMATION"), gui.ImVec4(1, 0, 0, 1))
@@ -688,7 +691,7 @@ local npcDialogFrame = gui.OnFrame(
 	function(player)
 		local sx, sy = getScreenResolution()
 		gui.SetNextWindowPos(gui.ImVec2(sx - 10, sy - 10), 0, gui.ImVec2(1, 1))
-		gui.SetNextWindowSizeConstraints(gui.ImVec2(300, 0), gui.ImVec2(sx, sy))
+		gui.SetNextWindowSizeConstraints(gui.ImVec2(300 * c.ui.density, 0), gui.ImVec2(sx, sy))
 		gui.Begin("npc", gui.new.bool(s.npc.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize)
 		if not s.npc.title == "" then gui.Text(u8(s.npc.title)) end
 		local t = s.npc.text:gsub("<br>", "\n")
@@ -710,14 +713,20 @@ local settingsFrame = gui.OnFrame(
 	function(player)
 		local sx, sy = getScreenResolution()
 		gui.SetNextWindowPos(gui.ImVec2(sx/2, sy/2), 0, gui.ImVec2(0.5, 0.5))
-		gui.SetNextWindowSizeConstraints(gui.ImVec2(300, 0), gui.ImVec2(300, sy))
+		gui.SetNextWindowSizeConstraints(gui.ImVec2(300 * c.ui.density, 0), gui.ImVec2(300 * c.ui.density, sy))
 		gui.Begin("settings", s.settings.visible, gui.WindowFlags.AlwaysAutoResize)
 		
-		for i,v in pairs(c.main) do
-			gui.Checkbox(u8(i), gui.new.bool(v))
-			if gui.IsItemClicked() then
-				c.main[i] = not c.main[i]
-				save()
+		for u,m in pairs(c) do
+			if gui.CollapsedHeader(u8(u)) then
+				for i,v in pairs(m) do
+					if typeof(v) == "boolean" then
+						gui.Checkbox(u8(i), gui.new.bool(v))
+						if gui.IsItemClicked() then
+							c[u][i] = not c[u][i]
+							save()
+						end
+					end
+				end
 			end
 		end
 		
@@ -737,7 +746,7 @@ local carsFrame = gui.OnFrame(
 	function(player)
 		local sx, sy = getScreenResolution()
 		gui.SetNextWindowPos(gui.ImVec2((c.main.leftAlignedCars and 0 or sx), sy/2), 0, gui.ImVec2((c.main.leftAlignedCars and 0 or 1), 0.5))
-		gui.SetNextWindowSizeConstraints(gui.ImVec2(300, 0), gui.ImVec2(300, sy))
+		gui.SetNextWindowSizeConstraints(gui.ImVec2(300 * c.ui.density, 0), gui.ImVec2(300 * c.ui.density, sy))
 		gui.Begin("cars", gui.new.bool(s.cars.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize)
 		gui.Text(u8"Мой автопарк")
 		gui.SameLine()
@@ -777,11 +786,11 @@ local carsFrame = gui.OnFrame(
 )
 
 function gui.CarInfoCard(i, v)
-	gui.BeginChild("car"..i, gui.ImVec2(280, 120), true)
+	gui.BeginChild("car"..i, gui.ImVec2(280 * c.ui.density, 120 * c.ui.density), true)
 	if v.sysName then
 		gui.SetCursorPos(gui.ImVec2(100, 0))
 		--print(rescdn, cdn.res[rescdn], "/projects/arizona-rp/assets/images/inventory/vehicles/512/", v.sysName)
-		gui.WebImage(cdn.res[rescdn] .. "/projects/arizona-rp/assets/images/inventory/vehicles/512/" .. v.sysName:gsub("webp", "png"), gui.ImVec2(180, 110))
+		gui.WebImage(cdn.res[rescdn] .. "/projects/arizona-rp/assets/images/inventory/vehicles/512/" .. v.sysName:gsub("webp", "png"), gui.ImVec2(180 * c.ui.density, 110 * c.ui.density))
 		if gui.IsItemClicked() then
 			sendcef("vehicleMenu.loadVehicleInfo|" .. v.id)
 		end
@@ -852,7 +861,7 @@ local carInfoFrame = gui.OnFrame(
 		else
 			gui.SetNextWindowPos(gui.ImVec2((c.main.leftAlignedCars and 0 or sx), sy/2), 0, gui.ImVec2((c.main.leftAlignedCars and 0 or 1), 0.5))
 		end
-		gui.SetNextWindowSizeConstraints(gui.ImVec2(400, 0), gui.ImVec2(400, sy))
+		gui.SetNextWindowSizeConstraints(gui.ImVec2(400 * c.ui.density, 0), gui.ImVec2(400 * c.ui.density, sy))
 		gui.Begin("carinfo", gui.new.bool(s.carinfo.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize)
 		if gui.Button(u8("«")) then
 			sendcef("vehicleMenu.backToList")
@@ -986,7 +995,8 @@ gui.WebImage = function(url, size)
 			local file, file_err = io.open(cachepath)
 			if not file then
 				download_file(url, cachepath)
-				file, file_err = io.open(cachepath)
+			else
+				file:close()
 			end
 			imagesbuffer[iid] = gui.CreateTextureFromFile(cachepath)
 		end, url, size)
@@ -1006,19 +1016,19 @@ end)
 function themeExample()
     gui.SwitchContext()
     local ImVec4 = gui.ImVec4
-    gui.GetStyle().WindowPadding = gui.ImVec2(5, 5)
-    gui.GetStyle().FramePadding = gui.ImVec2(5, 5)
-    gui.GetStyle().ItemSpacing = gui.ImVec2(5, 5)
-    gui.GetStyle().ItemInnerSpacing = gui.ImVec2(2, 2)
+    gui.GetStyle().WindowPadding = gui.ImVec2(5 * c.ui.density, 5 * c.ui.density)
+    gui.GetStyle().FramePadding = gui.ImVec2(5 * c.ui.density, 5 * c.ui.density)
+    gui.GetStyle().ItemSpacing = gui.ImVec2(5 * c.ui.density, 5 * c.ui.density)
+    gui.GetStyle().ItemInnerSpacing = gui.ImVec2(2 * c.ui.density, 2 * c.ui.density)
     gui.GetStyle().TouchExtraPadding = gui.ImVec2(0, 0)
     gui.GetStyle().IndentSpacing = 0
-    gui.GetStyle().ScrollbarSize = 10
-    gui.GetStyle().GrabMinSize = 10
+    gui.GetStyle().ScrollbarSize = 10 * c.ui.density
+    gui.GetStyle().GrabMinSize = 10 * c.ui.density
     gui.GetStyle().WindowBorderSize = 0
-    gui.GetStyle().ChildBorderSize = 1
-    gui.GetStyle().PopupBorderSize = 1
-    gui.GetStyle().FrameBorderSize = 1
-    gui.GetStyle().TabBorderSize = 1
+    gui.GetStyle().ChildBorderSize = 1 * c.ui.density
+    gui.GetStyle().PopupBorderSize = 1 * c.ui.density
+    gui.GetStyle().FrameBorderSize = 1 * c.ui.density
+    gui.GetStyle().TabBorderSize = 1 * c.ui.density
     gui.GetStyle().WindowRounding = 0
     gui.GetStyle().ChildRounding = 0
     gui.GetStyle().FrameRounding = 0
