@@ -524,6 +524,11 @@ local toastFrame = gui.OnFrame(
 		local sx, sy = getScreenResolution()
 		gui.SetNextWindowPos(gui.ImVec2(sx/2, sy - 10), 0, gui.ImVec2(0.5, 1))
 		gui.Begin("toast", gui.new.bool(s.toast.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
+		if s.toast.icon == "success" then gui.TextInColor(fa("CHECK"), gui.ImVec4(0, 1, 0, 1))
+		elseif s.toast.icon == "error" then gui.TextInColor(fa("EXCLAMATION"), gui.ImVec4(1, 0, 0, 1))
+		elseif s.toast.icon == "info" then gui.Text(fa("INFO"))
+		elseif s.toast.icon == "halloween" then gui.Text(fa("GHOST")) end
+		gui.SameLine()
 		if s.toast.text == nil then s.toast.text = "Уведомление" end
 		if s.toast.description == nil then s.toast.description = "" end
 		gui.Text(u8(s.toast.text))
