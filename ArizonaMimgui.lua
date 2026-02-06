@@ -785,7 +785,7 @@ function gui.CarInfoCard(i, v)
 	if v.sysName then
 		gui.SetCursorPos(gui.ImVec2(100, 0))
 		--print(rescdn, cdn.res[rescdn], "/projects/arizona-rp/assets/images/inventory/vehicles/512/", v.sysName)
-		gui.WebImage(cdn.res[rescdn] .. "/projects/arizona-rp/assets/images/inventory/vehicles/512/" .. v.sysName, gui.ImVec2(180, 110))
+		gui.WebImage(cdn.res[rescdn] .. "/projects/arizona-rp/assets/images/inventory/vehicles/512/" .. v.sysName:gsub("webp", "png"), gui.ImVec2(180, 110))
 	end
 	gui.SetCursorPos(gui.ImVec2(5,5))
 	if v.favorite > 0 then
