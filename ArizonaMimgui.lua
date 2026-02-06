@@ -576,7 +576,8 @@ local npcDialogFrame = gui.OnFrame(
 		gui.SetNextWindowSizeConstraints(gui.ImVec2(300, 0), gui.ImVec2(sx, sy))
 		gui.Begin("npc", gui.new.bool(s.npc.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize)
 		if not s.npc.title == "" then gui.Text(u8(s.npc.title)) end
-		gui.TextWrapped(u8(string.gsub(s.npc.text, "<br>", "\n")))
+		local t = s.npc.text:gsub("<br>", "\n")
+		gui.TextWrapped(u8(t))
 		for i,v in pairs(s.npc.buttons) do
 			if gui.Button(u8(v.text)) then
 				sendcef("answer.npcDialog|" .. v.id)
