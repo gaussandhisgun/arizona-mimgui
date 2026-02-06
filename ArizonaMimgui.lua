@@ -731,26 +731,6 @@ local settingsFrame = gui.OnFrame(
 	end
 )
 
-function gui.WebImage(url, size)
-	if imagesbuffer[url] == nil then
-		imagesbuffer[url] = -1
-		lua_thread.create(function(url, size)
-			local cachepath = cachedir .. string.gsub(url, ".*arizona%-rp", "")
-			local file, file_err = io.open(cachepath)
-			if not file then
-				download_file(url, cachepath)
-				file, file_err = io.open(cachepath)
-			end
-			imagesbuffer[url] = gui.CreateTextureFromFile(cachepath)
-		end, url, size)
-	end
-	if imagesbuffer[url] == -1 then
-		gui.Dummy(size)
-	else
-		gui.Image(imagesbuffer[url], size)
-	end
-end
-
 -- fUCKING CARS MENU
 local carsFrame = gui.OnFrame(
 	function() return s.cars.visible and not sampIsDialogActive() and not sampIsChatInputActive() end,
@@ -994,6 +974,27 @@ gui.TimerTypeText = function(type)
 		gui.Text(u8"Таксометр")
 	else
 		gui.Text(u8(type))
+	end
+end
+
+gui.WebImage = function(url, size)
+	local iid = string.gsub(url, ".*arizona%-rp", "")
+	if imagesbuffer[iid] == nil then
+		imagesbuffer[iid] = -1
+		lua_thread.create(function(url, size)
+			local cachepath = cachedir .. string.gsub(url, ".*arizona%-rp", "")
+			local file, file_err = io.open(cachepath)
+			if not file then
+				download_file(url, cachepath)
+				file, file_err = io.open(cachepath)
+			end
+			imagesbuffer[iid] = gui.CreateTextureFromFile(cachepath)
+		end, url, size)
+	end
+	if imagesbuffer[iid] == -1 then
+		gui.Dummy(size)
+	else
+		gui.Image(imagesbuffer[iid], size)
 	end
 end
 
