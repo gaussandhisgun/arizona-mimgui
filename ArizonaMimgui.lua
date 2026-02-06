@@ -8,6 +8,7 @@ local memory = require "memory"
 local vk = require "vkeys"
 local ffi = require "ffi"
 local enc = require "encoding"
+local lfs = require "lfs"
 enc.default = "CP1251"
 local u8 = enc.UTF8
 
@@ -23,6 +24,8 @@ local cfgOpenerDialog = {
 	id = 0,
 	item = 0
 }
+
+
 
 c = cfg.load({
 main = {
@@ -103,7 +106,7 @@ s = {
 	questHint = {
 		visible = false,
 		text = "",
-		image = nil, -- TODO
+		image = nil,
 		cd = function(t)
 			if cds.questHint ~= nil then
 				cds.questHint:terminate()
@@ -229,6 +232,13 @@ end
 
 local function download_file(url, file_path)
     -- Make an asynchronous HTTP GET request using copas.http.request
+    
+    local d = file_path:gsub("/[^/]*$", "")
+    if not doesDirectoryExist(d) then
+    		print(d)
+    		createDirectory(d)
+    end
+    
     print(url, "»", file_path)
     local body, status, headers, err = httpRequest(url)
 	
@@ -249,6 +259,8 @@ local function download_file(url, file_path)
         print("Error downloading file: HTTP status " .. status .. " (" .. tostring(err) .. ")")
     end
 end
+
+
 
 local CRadar_TransformRealWorldPointToRadarSpace = ffi.cast('void (__cdecl*)(struct CVector2D*, struct CVector2D*)', 0x583530)
 local CRadar_TransformRadarPointToScreenSpace = ffi.cast('void (__cdecl*)(struct CVector2D*, struct CVector2D*)', 0x583480)
@@ -375,42 +387,39 @@ function arz.onArizonaDisplay(packet)
 	end
 	
 	if string.find(packet.text, "cef.modals.showModal") and string.find(packet.text, "businessInfo") then
-		local title = string.match(packet.text, '"title":%s*"([^"]*)"')
-		local description = string.match(packet.text, '"description":%s*"([^"]*)"')
+		local data = decodeJson(string.match(packet.text, '`(.*)`'))[2]["businessInfo"]
 		local timer = string.match(packet.text, '"timer":%s*(%d+)')
-		local buttons = string.match(packet.text, '"buttons":%s*(%[[^]]*%])')
-		local info = string.match(packet.text, '"info":%s*(%[[^]]*%])')
 		--print(buttons)
-		buttons = decodeJson(buttons)
-		info = decodeJson(info)
 		local b = ""
 		local inf = ""
-		for i,v in pairs(info) do
+		for i,v in pairs(data.info) do
 			inf = inf .. v.title .. ": " .. v.value .. "\n" 
 		end
-		for i,v in pairs(buttons) do
+		for i,v in pairs(data.buttons) do
 			b = b .. "[" .. v.keyTitle .. "] " .. v.title .. "\n" 
 		end
 		
 		if mc_compat then
-			runSampfuncsConsoleCommand("moderncontrols.setkey " .. buttons[1].keyTitle)
+			runSampfuncsConsoleCommand("moderncontrols.setkey " .. data.buttons[1].keyTitle)
 		end
 		--nt.addNotification("--- "..title.." ---\n" .. description .."\n\n" .. inf .. "\n" .. b, (tonumber(timer) and tonumber(timer) or 7))
 		
 		s.propertyInfo.visible = true
-		s.propertyInfo.title = title
-		s.propertyInfo.buttons = buttons
-		s.propertyInfo.information = info
-		s.propertyInfo.description = description
+		s.propertyInfo.title = data.title
+		s.propertyInfo.buttons = data.buttons
+		s.propertyInfo.information = data.info
+		s.propertyInfo.description = data.description
+		s.propertyInfo.image = data.img
 		s.propertyInfo.cd(tonumber(timer) and tonumber(timer) or 7)
 		--print(DeepPrint(buttons))
 		return not c.main.disableOriginalInterfaces
 	end
 	
 	if string.find(packet.text, "cef.modals.showModal") and string.find(packet.text, "dialogTip") then
-		local text = string.match(packet.text, '"text":%s*"([^"]*)"')
+		local data = decodeJson(string.match(packet.text, '({[^}]*})'))
 		s.questHint.visible = true
-		s.questHint.text = text
+		s.questHint.text = data.text
+		s.questHint.image = data.backgroundImage
 		--nt.addNotification("[i]: " .. text, 7)
 		--print(DeepPrint(buttons))
 		return not c.main.disableOriginalInterfaces
@@ -426,7 +435,7 @@ function arz.onArizonaDisplay(packet)
 	end
 	
 	if string.find(packet.text, "event.vehicleMenu.pushVehicleItem") then
-		if not string.find(packet.text, '`%[%s*null%s*%]`') then
+		if not string.find(packet.text, 'null') then
 			local data = decodeJson(string.match(packet.text, '`(.*)`'))[1]
 			--print(DeepPrint(data))
 			local exists = false
@@ -591,9 +600,15 @@ local propertyHintFrame = gui.OnFrame(
 	function(player)
 		player.HideCursor = true
 		local cpos = getChatPos()
-		gui.SetNextWindowPos(gui.ImVec2(cpos.x, cpos.y), 0, gui.ImVec2(0, 0))		
+		local sx, sy = getScreenResolution()
+		gui.SetNextWindowPos(gui.ImVec2(cpos.x, cpos.y), 0, gui.ImVec2(0, 0))	
+		--gui.SetNextWindowSizeConstraints(gui.ImVec2(300, 0), gui.ImVec2(300, sy))
 		gui.Begin("propertyInfo", gui.new.bool(s.keyboardHint.visible and not sampIsChatInputActive()), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
 		gui.Text(u8(s.propertyInfo.title))
+		--[[
+		if s.propertyInfo.image and s.propertyInfo.image ~= "" then
+			gui.WebImage(cdn.res[rescdn] .. "/projects/arizona-rp/systems/image_business_temp/" .. s.propertyInfo.image .. ".png", gui.ImVec2(280, 140))
+		end]] -- apparently arizona backend does not provide pngs for businesses, and mimgui cant load webps because webp is a bad file format
 		if s.propertyInfo.description ~= "" then
 			gui.Separator()
 			gui.TextWrapped(u8(s.propertyInfo.description))
@@ -632,16 +647,22 @@ local toastFrame = gui.OnFrame(
 )
 
 -- Quest hints. These show up in the bottom right of the screen with an ugly ass picture.
--- Picture is not implemented yet.
 local questHintFrame = gui.OnFrame(
 	function() return s.questHint.visible and sampIsChatVisible() end,
 	function(player)
 		player.HideCursor = true
 		local sx, sy = getScreenResolution()
 		gui.SetNextWindowPos(gui.ImVec2(sx - 10, sy - 10), 0, gui.ImVec2(1, 1))
+		gui.PushStyleColor(gui.Col.WindowBg, gui.ImVec4(0, 0, 0, 0))
+		gui.Begin("questHintBG", gui.new.bool(s.questHint.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
+		gui.WebImage(cdn.res[rescdn] .. "/projects/arizona-rp/systems/quest_notify/" .. s.questHint.image:gsub("webp", "png"), gui.ImVec2(200, 200))
+		gui.End()
+		gui.PopStyleColor()
+		gui.SetNextWindowPos(gui.ImVec2(sx - 10, sy - 10), 0, gui.ImVec2(1, 1))
 		gui.Begin("questHint", gui.new.bool(s.questHint.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
 		gui.Text(u8(s.questHint.text))
 		gui.End()
+		
 	end
 )
 
@@ -700,16 +721,11 @@ local settingsFrame = gui.OnFrame(
 			end
 		end
 		
-		gui.WebImage(cdn.res[rescdn] .. "/projects/arizona-rp/assets/images/inventory/vehicles/512/1272.png", gui.ImVec2(200, 200))
+		--gui.WebImage(cdn.res[rescdn] .. "/projects/arizona-rp/assets/images/inventory/vehicles/512/1272.png", gui.ImVec2(200, 200))
 		
-		--[[if gui.Button("Test download") then
-			lua_thread.create(function()
-				printStringNow("ye downloadin", 1000)
-				download_file(cdn.res[rescdn] .. "/projects/arizona-rp/assets/images/inventory/vehicles/512/1267.png", getWorkingDirectory() .. "/ArizonaMimgui/icon-cache/assets/images/inventory/vehicles/512/test.png")
-				printStringNow("done", 1000)
-				loaded = true
-			end)
-		end]]
+		if gui.Button(u8"Перезагрузить кэш") then
+			imagesbuffer = {}
+		end
 		
 		gui.End()
 	end
@@ -719,7 +735,7 @@ function gui.WebImage(url, size)
 	if imagesbuffer[url] == nil then
 		imagesbuffer[url] = -1
 		lua_thread.create(function(url, size)
-			local cachepath = cachedir .. url:gsub(".*/assets", "assets")
+			local cachepath = cachedir .. string.gsub(url, ".*arizona%-rp", "")
 			local file, file_err = io.open(cachepath)
 			if not file then
 				download_file(url, cachepath)
@@ -786,8 +802,11 @@ function gui.CarInfoCard(i, v)
 		gui.SetCursorPos(gui.ImVec2(100, 0))
 		--print(rescdn, cdn.res[rescdn], "/projects/arizona-rp/assets/images/inventory/vehicles/512/", v.sysName)
 		gui.WebImage(cdn.res[rescdn] .. "/projects/arizona-rp/assets/images/inventory/vehicles/512/" .. v.sysName:gsub("webp", "png"), gui.ImVec2(180, 110))
+		if gui.IsItemClicked() then
+			sendcef("vehicleMenu.loadVehicleInfo|" .. v.id)
+		end
 	end
-	gui.SetCursorPos(gui.ImVec2(5,5))
+	gui.SetCursorPos(gui.GetStyle().FramePadding)
 	if v.favorite > 0 then
 		gui.PushStyleColor(gui.Col.Button, gui.ImVec4(1, 1, 0, 1))
     		gui.PushStyleColor(gui.Col.ButtonHovered, gui.ImVec4(0.8, 0.8, 0, 1))
