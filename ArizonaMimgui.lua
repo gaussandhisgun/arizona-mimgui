@@ -163,6 +163,7 @@ s = {
 }
 
 imagesbuffer = {}
+imagesthreads = {}
 
 bonusname = {
 	[0] = "–жавеет",
@@ -899,7 +900,7 @@ local carInfoFrame = gui.OnFrame(
 	function() return s.carinfo.visible and not sampIsDialogActive() and not sampIsChatInputActive() end,
 	function(player)
 		local sx, sy = getScreenResolution()
-		gui.PushFont()
+		gui.PushFont(font)
 		if c.main.centeredCarInfoPanel then
 			gui.SetNextWindowPos(gui.ImVec2(sx/2, sy/2), 0, gui.ImVec2(0.5, 0.5))
 		else
@@ -1033,21 +1034,22 @@ end
 
 gui.WebImage = function(url, size)
 	local iid = string.gsub(url, ".*arizona%-rp", "")
+	local cachepath = cachedir .. string.gsub(url, ".*arizona%-rp", "")
 	if imagesbuffer[iid] == nil then
 		imagesbuffer[iid] = -1
-		lua_thread.create(function(url, size)
-			local cachepath = cachedir .. string.gsub(url, ".*arizona%-rp", "")
-			local file, file_err = io.open(cachepath)
-			if not file then
-				download_file(url, cachepath)
-			else
-				file:close()
-			end
-			imagesbuffer[iid] = gui.CreateTextureFromFile(cachepath)
-		end, url, size)
+		local file, file_err = io.open(cachepath)
+		if not file then
+			imagesthreads[iid] = lua_thread.create(download_file, url, cachepath)
+		else
+			imagesthreads[iid] = {dead = true}
+			file:close()
+		end
 	end
 	if imagesbuffer[iid] == -1 then
 		gui.Dummy(size)
+		if imagesthreads[iid] and imagesthreads[iid].dead then
+			imagesbuffer[iid] = gui.CreateTextureFromFile(cachepath)
+		end
 	else
 		gui.Image(imagesbuffer[iid], size)
 	end
