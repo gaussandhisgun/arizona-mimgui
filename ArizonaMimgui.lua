@@ -12,6 +12,8 @@ local lfs = require "lfs"
 enc.default = "CP1251"
 local u8 = enc.UTF8
 
+local font
+
 local copas = require "copas"
 local socket = require "socket"
 local http = require "copas.http"
@@ -39,7 +41,23 @@ ui = {
 }
 }, "../ArizonaMimgui/config.ini")
 
+local cc = {
+	ui = {
+		density = {
+			v = gui.new.float(c.ui.density),
+			min = 0.7,
+			max = 2.0,
+			type = "float"
+		}
+	}
+}
+
 function save()
+	for i, v in pairs(cc) do
+		for u, w in pairs(v) do
+			c[i][u] = cc[i][u].v[0]
+		end
+	end
 	cfg.save(c, "../ArizonaMimgui/config.ini")
 end
 
@@ -348,8 +366,10 @@ gui.OnInitialize(function()
     local config = gui.ImFontConfig()
     config.MergeMode = true
     config.PixelSnapH = true
+    glyph_ranges = gui.GetIO().Fonts:GetGlyphRangesCyrillic() 
+    font = gui.GetIO().Fonts:AddFontFromFileTTF(getFolderPath(0x14)..'\\arial-bold.ttf', math.floor(12 * c.ui.density), _, glyph_ranges)
     iconRanges = gui.new.ImWchar[3](fa.min_range, fa.max_range, 0)
-    gui.GetIO().Fonts:AddFontFromMemoryCompressedBase85TTF(fa.get_font_data_base85('solid'), 14, config, iconRanges) -- solid - тип иконок, так же есть thin, regular, light и duotone
+    gui.GetIO().Fonts:AddFontFromMemoryCompressedBase85TTF(fa.get_font_data_base85('solid'), math.floor(14 * c.ui.density), config, iconRanges) -- solid - тип иконок, так же есть thin, regular, light и duotone
 end)
 
 function arz.onArizonaDisplay(packet)	
@@ -585,6 +605,7 @@ local keyHintFrame = gui.OnFrame(
 		player.HideCursor = true
 --		if s.keyboardHint.visible and not sampIsChatInputActive() then
 		local cpos = getChatPos()
+		gui.PushFont(font)
 		gui.SetNextWindowPos(gui.ImVec2(cpos.x, cpos.y), 0, gui.ImVec2(0, 0))		
 		gui.Begin("keyboardHint", gui.new.bool(s.keyboardHint.visible and not sampIsChatInputActive()), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
 		if s.keyboardHint.title ~= "" then gui.Text(u8(s.keyboardHint.title)) end
@@ -592,6 +613,7 @@ local keyHintFrame = gui.OnFrame(
 			gui.HintButton(u8(v.keyTitle), u8(v.title))
 		end
 		gui.End()
+		gui.PopFont()
 --		end
 	end
 )
@@ -604,6 +626,7 @@ local propertyHintFrame = gui.OnFrame(
 		player.HideCursor = true
 		local cpos = getChatPos()
 		local sx, sy = getScreenResolution()
+		gui.PushFont(font)
 		gui.SetNextWindowPos(gui.ImVec2(cpos.x, cpos.y), 0, gui.ImVec2(0, 0))	
 		--gui.SetNextWindowSizeConstraints(gui.ImVec2(300, 0), gui.ImVec2(300, sy))
 		gui.Begin("propertyInfo", gui.new.bool(s.keyboardHint.visible and not sampIsChatInputActive()), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
@@ -625,6 +648,7 @@ local propertyHintFrame = gui.OnFrame(
 			gui.HintButton(u8(v.keyTitle), u8(v.title))
 		end
 		gui.End()
+		gui.PopFont()
 	end
 )
 
@@ -634,6 +658,7 @@ local toastFrame = gui.OnFrame(
 	function(player)
 		player.HideCursor = true
 		local sx, sy = getScreenResolution()
+		gui.PushFont(font)
 		gui.SetNextWindowPos(gui.ImVec2(sx/2, sy - 10 * c.ui.density), 0, gui.ImVec2(0.5, 1))
 		gui.Begin("toast", gui.new.bool(s.toast.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
 		if s.toast.icon == "success" then gui.TextInColor(fa("CHECK"), gui.ImVec4(0, 1, 0, 1))
@@ -646,6 +671,7 @@ local toastFrame = gui.OnFrame(
 		gui.Text(u8(s.toast.text))
 		gui.Text(u8(s.toast.description))
 		gui.End()
+		gui.PopFont()
 	end
 )
 
@@ -655,6 +681,7 @@ local questHintFrame = gui.OnFrame(
 	function(player)
 		player.HideCursor = true
 		local sx, sy = getScreenResolution()
+		gui.PushFont(font)
 		gui.SetNextWindowPos(gui.ImVec2(sx - 10, sy - 10), 0, gui.ImVec2(1, 1))
 		gui.PushStyleColor(gui.Col.WindowBg, gui.ImVec4(0, 0, 0, 0))
 		gui.Begin("questHintBG", gui.new.bool(s.questHint.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
@@ -665,7 +692,7 @@ local questHintFrame = gui.OnFrame(
 		gui.Begin("questHint", gui.new.bool(s.questHint.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
 		gui.Text(u8(s.questHint.text))
 		gui.End()
-		
+		gui.PopFont()
 	end
 )
 
@@ -692,6 +719,7 @@ local npcDialogFrame = gui.OnFrame(
 		local sx, sy = getScreenResolution()
 		gui.SetNextWindowPos(gui.ImVec2(sx - 10, sy - 10), 0, gui.ImVec2(1, 1))
 		gui.SetNextWindowSizeConstraints(gui.ImVec2(300 * c.ui.density, 0), gui.ImVec2(sx, sy))
+		gui.PushFont(font)
 		gui.Begin("npc", gui.new.bool(s.npc.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize)
 		if not s.npc.title == "" then gui.Text(u8(s.npc.title)) end
 		local t = s.npc.text:gsub("<br>", "\n")
@@ -703,6 +731,7 @@ local npcDialogFrame = gui.OnFrame(
 			gui.SameLine()
 		end
 		gui.End()
+		gui.PopFont()
 	end
 )
 
@@ -712,18 +741,23 @@ local settingsFrame = gui.OnFrame(
 	function() return s.settings.visible[0] end,
 	function(player)
 		local sx, sy = getScreenResolution()
+		gui.PushFont(font)
 		gui.SetNextWindowPos(gui.ImVec2(sx/2, sy/2), 0, gui.ImVec2(0.5, 0.5))
-		gui.SetNextWindowSizeConstraints(gui.ImVec2(300 * c.ui.density, 0), gui.ImVec2(300 * c.ui.density, sy))
+		gui.SetNextWindowSizeConstraints(gui.ImVec2(300 * c.ui.density, 0), gui.ImVec2((sx < 300 * c.ui.density and 300 * c.ui.density or sx), sy))
 		gui.Begin("settings", s.settings.visible, gui.WindowFlags.AlwaysAutoResize)
 		
 		for u,m in pairs(c) do
-			if gui.CollapsedHeader(u8(u)) then
+			if gui.CollapsingHeader(u8(u)) then
 				for i,v in pairs(m) do
-					if typeof(v) == "boolean" then
+					if type(v) == "boolean" then
 						gui.Checkbox(u8(i), gui.new.bool(v))
 						if gui.IsItemClicked() then
 							c[u][i] = not c[u][i]
 							save()
+						end
+					elseif type(v) == "number" then
+						if cc[u][i].type == "float" then
+							gui.SliderFloat(u8(i), cc[u][i].v, cc[u][i].min, cc[u][i].max)
 						end
 					end
 				end
@@ -735,8 +769,14 @@ local settingsFrame = gui.OnFrame(
 		if gui.Button(u8"Перезагрузить кэш") then
 			imagesbuffer = {}
 		end
+		gui.SameLine()
+		if gui.Button(u8"Сохранить") then
+			save()
+			thisScript():reload()
+		end
 		
 		gui.End()
+		gui.PopFont()
 	end
 )
 
@@ -745,6 +785,7 @@ local carsFrame = gui.OnFrame(
 	function() return s.cars.visible and not sampIsDialogActive() and not sampIsChatInputActive() end,
 	function(player)
 		local sx, sy = getScreenResolution()
+		gui.PushFont(font)
 		gui.SetNextWindowPos(gui.ImVec2((c.main.leftAlignedCars and 0 or sx), sy/2), 0, gui.ImVec2((c.main.leftAlignedCars and 0 or 1), 0.5))
 		gui.SetNextWindowSizeConstraints(gui.ImVec2(300 * c.ui.density, 0), gui.ImVec2(300 * c.ui.density, sy))
 		gui.Begin("cars", gui.new.bool(s.cars.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize)
@@ -782,6 +823,8 @@ local carsFrame = gui.OnFrame(
 				gui.CarInfoCard(i, v)
 			end
 		end
+		gui.End()
+		gui.PopFont()
 	end
 )
 
@@ -856,6 +899,7 @@ local carInfoFrame = gui.OnFrame(
 	function() return s.carinfo.visible and not sampIsDialogActive() and not sampIsChatInputActive() end,
 	function(player)
 		local sx, sy = getScreenResolution()
+		gui.PushFont()
 		if c.main.centeredCarInfoPanel then
 			gui.SetNextWindowPos(gui.ImVec2(sx/2, sy/2), 0, gui.ImVec2(0.5, 0.5))
 		else
@@ -944,6 +988,7 @@ local carInfoFrame = gui.OnFrame(
 			gui.NextColumn()
 		end
 		gui.End()
+		gui.PopFont()
 	end
 )
 
@@ -1016,6 +1061,7 @@ end)
 function themeExample()
     gui.SwitchContext()
     local ImVec4 = gui.ImVec4
+    
     gui.GetStyle().WindowPadding = gui.ImVec2(5 * c.ui.density, 5 * c.ui.density)
     gui.GetStyle().FramePadding = gui.ImVec2(5 * c.ui.density, 5 * c.ui.density)
     gui.GetStyle().ItemSpacing = gui.ImVec2(5 * c.ui.density, 5 * c.ui.density)
