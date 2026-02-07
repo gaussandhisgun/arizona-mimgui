@@ -22,12 +22,21 @@ local cachedir = getWorkingDirectory() .. "/ArizonaMimgui/icon-cache/"
 
 local cfg = require "inicfg"
 
+local getBonePosition = ffi.cast("int (__thiscall*)(void*, float*, int, bool)", 0x5E4280)
+function getBodyPartCoordinates(id, handle)
+  local pedptr = getCharPointer(handle)
+  local vec = ffi.new("float[3]")
+  getBonePosition(ffi.cast("void*", pedptr), vec, id, true)
+  return vec[0], vec[1], vec[2]
+end
+
 local cfgOpenerDialog = {
 	id = 0,
 	item = 0
 }
 
-
+inventory = {} -- inventory in particular is a weird one, it gets sent to the client passively and is stored on the client, so we need some kind of persistance to keep it loaded in between script reloads
+-- mostly because we reload the script to set its DPI really
 
 c = cfg.load({
 main = {
@@ -35,6 +44,7 @@ main = {
 	useCustomTimer = false,
 	leftAlignedCars = false,
 	centeredCarInfoPanel = true,
+	replaceInventory = false,
 },
 ui = {
 	density = 1,
@@ -64,6 +74,11 @@ end
 s = {
 	settings = {
 		visible = gui.new.bool(false),
+	},
+	stamina = {
+		value = 0,
+		x = 0,
+		y = 0,
 	},
 	timer = {
 		visible = false,
@@ -159,6 +174,9 @@ s = {
 		buttons = {},
 		radials = {},
 		stats = {},
+	},
+	inventory = {
+		visible = false,
 	},
 }
 
@@ -568,6 +586,16 @@ function arz.onArizonaDisplay(packet)
 		s.carinfo.stats = decodeJson(string.match(packet.text, '`(.*)`'))[1]
 	end
 	
+	if string.find(packet.text, "event.arizonahud.playerPower") then
+		s.stamina.value = decodeJson(string.match(packet.text, '`(.*)`'))[1]
+--		printStringNow(s.stamina.value, 100)
+	end
+	
+	if string.find(packet.text, "event.inventory.setPlayerInventoryVisible") then
+		s.inventory.visible = decodeJson(string.match(packet.text, '`(.*)`'))[1]
+		return not c.main.disableOriginalInterfaces or not c.main.replaceInventory
+	end
+	
 	-- TODO: these return falses break phone, reimplement phone first
 	
 	if c.main.useCustomTimer then
@@ -832,7 +860,7 @@ local carsFrame = gui.OnFrame(
 function gui.CarInfoCard(i, v)
 	gui.BeginChild("car"..i, gui.ImVec2(280 * c.ui.density, 120 * c.ui.density), true)
 	if v.sysName then
-		gui.SetCursorPos(gui.ImVec2(100, 0))
+		gui.SetCursorPos(gui.ImVec2(100 * c.ui.density, 0))
 		--print(rescdn, cdn.res[rescdn], "/projects/arizona-rp/assets/images/inventory/vehicles/512/", v.sysName)
 		gui.WebImage(cdn.res[rescdn] .. "/projects/arizona-rp/assets/images/inventory/vehicles/512/" .. v.sysName:gsub("webp", "png"), gui.ImVec2(180 * c.ui.density, 110 * c.ui.density))
 		if gui.IsItemClicked() then
@@ -992,6 +1020,33 @@ local carInfoFrame = gui.OnFrame(
 		gui.PopFont()
 	end
 )
+
+-- stamina bar, for things like skateboards and jet packs
+local staminaFrame = gui.OnFrame(
+	function()
+		if s.stamina.value > 0 then
+			local x, y, z = getBodyPartCoordinates(2, PLAYER_PED)
+			s.stamina.x, s.stamina.y = convert3DCoordsToScreen(x, y, z)
+		end
+		return s.stamina.value > 0 
+	end,
+	function(player)
+		player.HideCursor = true
+		gui.SetNextWindowPos(gui.ImVec2(s.stamina.x + 100 * c.ui.density, s.stamina.y), 0, gui.ImVec2(0.5, 0.5))
+		gui.SetNextWindowSizeConstraints(gui.ImVec2(50 * c.ui.density, 50 * c.ui.density), gui.ImVec2(50 * c.ui.density, 50 * c.ui.density))
+		gui.PushStyleColor(gui.Col.WindowBg, gui.ImVec4(0,0,0,0))
+		gui.Begin("stamina", gui.new.bool(s.stamina.value > 0), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
+		draw_list = gui.GetWindowDrawList()
+		draw_list:PathArcTo(gui.ImVec2(s.stamina.x, s.stamina.y), 20 * c.ui.density, math.pi * -1/4, math.pi * 1/4, 64)
+		draw_list:PathStroke(gui.ColorConvertFloat4ToU32(gui.ImVec4(0, 0, 0, 0.4)), false, 4 * c.ui.density)
+		draw_list:PathArcTo(gui.ImVec2(s.stamina.x, s.stamina.y), 20 * c.ui.density, math.pi * (1/4 - 0.5 * (s.stamina.value / 100)), math.pi * 1/4, 64)
+		draw_list:PathStroke(gui.ColorConvertFloat4ToU32(gui.ImVec4(1, 1, 0, 1)), false, 2 * c.ui.density)
+		gui.End()
+		gui.PopStyleColor()
+	end
+)
+
+-- inventory
 
 ------------------------------------------- MIMGUI FANCIES --------------------------------------------------
 
