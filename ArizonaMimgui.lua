@@ -45,6 +45,7 @@ main = {
 	leftAlignedCars = false,
 	centeredCarInfoPanel = true,
 	replaceInventory = false,
+	staminaBar = true,
 },
 ui = {
 	density = 1,
@@ -1024,18 +1025,19 @@ local carInfoFrame = gui.OnFrame(
 -- stamina bar, for things like skateboards and jet packs
 local staminaFrame = gui.OnFrame(
 	function()
-		if s.stamina.value > 0 then
+		if s.stamina.value > 0 and c.main.staminaBar then
 			local x, y, z = getBodyPartCoordinates(2, PLAYER_PED)
 			s.stamina.x, s.stamina.y = convert3DCoordsToScreen(x, y, z)
+			s.stamina.x = s.stamina.x + 50
 		end
 		return s.stamina.value > 0 
 	end,
 	function(player)
 		player.HideCursor = true
-		gui.SetNextWindowPos(gui.ImVec2(s.stamina.x + 100 * c.ui.density, s.stamina.y), 0, gui.ImVec2(0.5, 0.5))
+		gui.SetNextWindowPos(gui.ImVec2(s.stamina.x, s.stamina.y), 0, gui.ImVec2(0.5, 0.5))
 		gui.SetNextWindowSizeConstraints(gui.ImVec2(50 * c.ui.density, 50 * c.ui.density), gui.ImVec2(50 * c.ui.density, 50 * c.ui.density))
 		gui.PushStyleColor(gui.Col.WindowBg, gui.ImVec4(0,0,0,0))
-		gui.Begin("stamina", gui.new.bool(s.stamina.value > 0), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
+		gui.Begin("stamina", gui.new.bool(s.stamina.value > 0 and c.main.staminaBar), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
 		draw_list = gui.GetWindowDrawList()
 		draw_list:PathArcTo(gui.ImVec2(s.stamina.x, s.stamina.y), 20 * c.ui.density, math.pi * -1/4, math.pi * 1/4, 64)
 		draw_list:PathStroke(gui.ColorConvertFloat4ToU32(gui.ImVec4(0, 0, 0, 0.4)), false, 4 * c.ui.density)
