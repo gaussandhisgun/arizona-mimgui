@@ -1,3 +1,7 @@
+script_name("arizona-mimgui")
+script_description("An attempt to rewrite Arizona's CEF interfaces using mimgui. Because fuck CEF, that's why")
+script_author("Alex Gravitos aka Безликий")
+
 local ev = require "samp.events"
 --local _, nt = pcall(import, "lib/imgui_notf.lua")
 local arz = require "arizona-events"
@@ -45,10 +49,13 @@ main = {
 	leftAlignedCars = false,
 	centeredCarInfoPanel = true,
 	replaceInventory = false,
-	staminaBar = true,
 },
 ui = {
 	density = 1,
+},
+staminaBar = {
+	enabled = true,
+	showGameStamina = true,
 }
 }, "../ArizonaMimgui/config.ini")
 
@@ -70,6 +77,26 @@ function save()
 		end
 	end
 	cfg.save(c, "../ArizonaMimgui/config.ini")
+end
+
+cacher = {
+	queue = {},
+	working = false,
+}
+
+function main()
+	while true do
+		wait(0)
+		if not cacher.working and #cacher.queue > 0 then
+			wait(1000)
+			cacher.working = true
+			local image = table.remove(cacher.queue)
+			local iid = string.gsub(image.url, ".*arizona%-rp", "")
+			if image.url and image.cachepath then
+				imagesthreads[iid] = lua_thread.create(download_file, image.url, image.cachepath)
+			end
+		end
+	end
 end
 
 s = {
@@ -271,7 +298,7 @@ function httpRequest(request, body, handler) -- copas.http
     end
 end
 
-local function download_file(url, file_path)
+function download_file(url, file_path)
     -- Make an asynchronous HTTP GET request using copas.http.request
     
     local d = file_path:gsub("/[^/]*$", "")
@@ -299,9 +326,13 @@ local function download_file(url, file_path)
     else
         print("Error downloading file: HTTP status " .. status .. " (" .. tostring(err) .. ")")
     end
+    cacher.working = false
 end
 
-
+function getGameStamina()
+  local float = memory.getfloat(0xB7CDB4)
+  return math.floor(float/31.47000244)
+end
 
 local CRadar_TransformRealWorldPointToRadarSpace = ffi.cast('void (__cdecl*)(struct CVector2D*, struct CVector2D*)', 0x583530)
 local CRadar_TransformRadarPointToScreenSpace = ffi.cast('void (__cdecl*)(struct CVector2D*, struct CVector2D*)', 0x583480)
@@ -556,6 +587,7 @@ function arz.onArizonaDisplay(packet)
 		
 		if string.find(packet.text, "'%[%s*null%s*%]'") then
 			s.npc.visible = false
+			s.inventory.visible = false
 		end
 	end
 	
@@ -595,6 +627,11 @@ function arz.onArizonaDisplay(packet)
 	if string.find(packet.text, "event.inventory.setPlayerInventoryVisible") then
 		s.inventory.visible = decodeJson(string.match(packet.text, '`(.*)`'))[1]
 		return not c.main.disableOriginalInterfaces or not c.main.replaceInventory
+	end
+	
+	if string.find(packet.text, "event.inventory.playerInventory") then
+		local data = decodeJson(string.match(packet.text, '`(.*)`'))[1]
+		handleInventoryEvent(data.action, data.data)
 	end
 	
 	-- TODO: these return falses break phone, reimplement phone first
@@ -1025,23 +1062,27 @@ local carInfoFrame = gui.OnFrame(
 -- stamina bar, for things like skateboards and jet packs
 local staminaFrame = gui.OnFrame(
 	function()
-		if s.stamina.value > 0 and c.main.staminaBar then
+		if (s.stamina.value > 0 and c.staminaBar.enabled) or (c.staminaBar.showGameStamina and s.stamina.value == 0 and getGameStamina() < 100) then
 			local x, y, z = getBodyPartCoordinates(2, PLAYER_PED)
 			s.stamina.x, s.stamina.y = convert3DCoordsToScreen(x, y, z)
 			s.stamina.x = s.stamina.x + 50
 		end
-		return s.stamina.value > 0 
+		return (s.stamina.value > 0 and c.staminaBar.enabled) or (c.staminaBar.showGameStamina and s.stamina.value == 0 and getGameStamina() < 100)
 	end,
 	function(player)
 		player.HideCursor = true
 		gui.SetNextWindowPos(gui.ImVec2(s.stamina.x, s.stamina.y), 0, gui.ImVec2(0.5, 0.5))
 		gui.SetNextWindowSizeConstraints(gui.ImVec2(50 * c.ui.density, 50 * c.ui.density), gui.ImVec2(50 * c.ui.density, 50 * c.ui.density))
 		gui.PushStyleColor(gui.Col.WindowBg, gui.ImVec4(0,0,0,0))
-		gui.Begin("stamina", gui.new.bool(s.stamina.value > 0 and c.main.staminaBar), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
+		gui.Begin("stamina", gui.new.bool((s.stamina.value > 0 and c.staminaBar.enabled) or (c.staminaBar.showGameStamina and s.stamina.value == 0 and getGameStamina() < 100)), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
 		draw_list = gui.GetWindowDrawList()
 		draw_list:PathArcTo(gui.ImVec2(s.stamina.x, s.stamina.y), 20 * c.ui.density, math.pi * -1/4, math.pi * 1/4, 64)
 		draw_list:PathStroke(gui.ColorConvertFloat4ToU32(gui.ImVec4(0, 0, 0, 0.4)), false, 4 * c.ui.density)
-		draw_list:PathArcTo(gui.ImVec2(s.stamina.x, s.stamina.y), 20 * c.ui.density, math.pi * (1/4 - 0.5 * (s.stamina.value / 100)), math.pi * 1/4, 64)
+		if s.stamina.value > 0 then
+			draw_list:PathArcTo(gui.ImVec2(s.stamina.x, s.stamina.y), 20 * c.ui.density, math.pi * (1/4 - 0.5 * (s.stamina.value / 100)), math.pi * 1/4, 64)
+		else
+			draw_list:PathArcTo(gui.ImVec2(s.stamina.x, s.stamina.y), 20 * c.ui.density, math.pi * (1/4 - 0.5 * (getGameStamina() / 100)), math.pi * 1/4, 64)
+		end
 		draw_list:PathStroke(gui.ColorConvertFloat4ToU32(gui.ImVec4(1, 1, 0, 1)), false, 2 * c.ui.density)
 		gui.End()
 		gui.PopStyleColor()
@@ -1049,7 +1090,105 @@ local staminaFrame = gui.OnFrame(
 )
 
 -- inventory
+local invFrame = gui.OnFrame(
+	function() return s.inventory.visible and c.main.replaceInventory and not sampIsDialogActive() and not sampIsChatInputActive() end,
+	function(player)
+		local sx, sy = getScreenResolution()
+		for i,container in pairs(inventory) do
+			local col = #container < 6 and (#container > 0 and #container or 1) or 6
+			gui.SetNextWindowSizeConstraints(gui.ImVec2(50 * col * c.ui.density, 50 * c.ui.density), gui.ImVec2(sx * 0.75, sy * 0.75))
+			gui.PushFont(font)
+			gui.Begin("container" .. i, gui.new.bool(s.inventory.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize)
+			gui.Text(u8(getContainerTextId(i)))
+			gui.Columns(col)
+			for u,item in pairs(container) do
+				gui.InventoryItem(item, gui.ImVec2(50 * c.ui.density, 50 * c.ui.density))
+				gui.NextColumn()
+			end
+			gui.Columns(1)
+			gui.End()
+			gui.PopFont()
+		end
+	end
+)
 
+gui.InventoryItem = function(item, size)
+	gui.BeginChild("item" .. item.slot, size, true, gui.WindowFlags.NoScrollbar)
+	gui.SetCursorPos(gui.ImVec2(0,0))
+	if item.item then
+		gui.WebImage(cdn.res[rescdn] .. "/projects/arizona-rp/assets/images/donate/" .. item.item .. ".png", size)
+	else
+		gui.Dummy(size)
+	end
+	gui.SetCursorPos(gui.ImVec2(0,0))
+	if item.text then gui.Text(u8(item.text)) end
+	gui.EndChild()
+end
+
+INVENTORY_CONTAINERS = {
+	player = 1, -- игрок
+	accs = 2, -- аксы из 1 сета
+	trunk = 8, -- багажник
+	enhs = 10, -- улучшения 
+	utils = 17, -- инструменты (бронежилет, чемодан)
+	car_paintjob = 18, -- аэрография на машине
+	car_tt = 19, -- тт на машине
+	car_tech = 23, -- тех. модификации на машине
+	car_visual = 12, -- виз. модификации на машине
+	car_plate = 36, -- номер машины
+	skin = 20, -- скины
+	skin_alt = 22, -- скины но по-другому 
+	cardholder = 24, -- бумажник
+	secaccs = 30, -- аксы охранников
+	security = 33, -- инвентарь охранника
+}
+function getContainerTextId(id)
+	for i,v in pairs(INVENTORY_CONTAINERS) do
+		if v == id then return i end
+	end
+	return "Unknown container " .. id
+end
+
+INVENTORY_ACTIONS = {
+	init = 0,
+	
+}
+
+function handleInventoryEvent(action, data)
+	if action == INVENTORY_ACTIONS.init and data then
+		if not inventory[data.type] then inventory[data.type] = {} end
+		for i,item in pairs(data.items) do
+			local slot = item.slot
+			if item.id then slot = (item.slot + 100 * item.id) end
+			inventory[data.type][slot] = item
+		end
+	end
+end
+
+function saveInventoryJson()
+	local j = encodeJson(inventory)
+	local invfile, err = io.open(getWorkingDirectory() .. "/ArizonaMimgui/inventory.json", "w")
+	if invfile then
+		invfile:write(j)
+		invfile:close()
+	else
+		print("Error: could not save inventory persistence data.")
+	end
+end
+
+function loadInventoryJson()
+	local invfile, err = io.open(getWorkingDirectory() .. "/ArizonaMimgui/inventory.json", "r")
+	if invfile then
+		local j = invfile:read("*all")
+		invfile:close()
+		inventory = decodeJson(j)
+		if inventory == nil then inventory = {} end
+	else
+		print("Warning: could not open inventory persistence data.")
+	end
+end
+
+loadInventoryJson()
 ------------------------------------------- MIMGUI FANCIES --------------------------------------------------
 
 function gui.ColoredButton(text,hex,trans,size)
@@ -1096,7 +1235,9 @@ gui.WebImage = function(url, size)
 		imagesbuffer[iid] = -1
 		local file, file_err = io.open(cachepath)
 		if not file then
-			imagesthreads[iid] = lua_thread.create(download_file, url, cachepath)
+			table.insert(cacher.queue, {url = url, cachepath = cachepath})
+			imagesthreads[iid] = {dead = false}
+			--imagesthreads[iid] = lua_thread.create(download_file, url, cachepath)
 		else
 			imagesthreads[iid] = {dead = true}
 			file:close()
@@ -1204,8 +1345,6 @@ function rarity(rar)
 	end
 end
 
-
-
 function gui.Hint(str_id, hint, delay)
     local hovered = gui.IsItemHovered()
     local animTime = 0.2
@@ -1270,5 +1409,11 @@ function ev.onSendDialogResponse(id, button, list, text)
 		s.settings.visible[0] = true
 		closeNextDialog = true
 		return {id, 0, 0, ""}
+	end
+end
+
+function onScriptTerminate(script, quit)
+	if script == thisScript() then
+		saveInventoryJson()
 	end
 end
