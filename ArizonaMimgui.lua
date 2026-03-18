@@ -21,6 +21,7 @@ local font
 local copas = require "copas"
 local socket = require "socket"
 local http = require "copas.http"
+local req = require "requests"
 
 local cachedir = getWorkingDirectory() .. "/ArizonaMimgui/icon-cache/"
 
@@ -82,18 +83,20 @@ end
 cacher = {
 	queue = {},
 	working = false,
+	maxqueue = 0,
 }
 
 function main()
 	while true do
 		wait(0)
 		if not cacher.working and #cacher.queue > 0 then
-			wait(1000)
 			cacher.working = true
+			--wait(1)
 			local image = table.remove(cacher.queue)
 			local iid = string.gsub(image.url, ".*arizona%-rp", "")
 			if image.url and image.cachepath then
-				imagesthreads[iid] = lua_thread.create(download_file, image.url, image.cachepath)
+				download_file(image.url, image.cachepath)
+				--imagesthreads[iid] = lua_thread.create(download_file, image.url, image.cachepath)
 			end
 		end
 	end
@@ -269,7 +272,7 @@ if not apicdn then apicdn = 0 end
 
 function httpRequest(request, body, handler) -- copas.http
     -- start polling task
-    if not copas.running then
+    --[[if not copas.running then
         copas.running = true
         lua_thread.create(function()
             wait(0)
@@ -296,11 +299,15 @@ function httpRequest(request, body, handler) -- copas.http
         while coroutine.status(thread) ~= 'dead' do wait(0) end
         return table.unpack(results)
     end
+	]]
+	resp = req.request("GET", request)
+	return resp.text, resp.status_code, "{}", resp.err
 end
 
 function download_file(url, file_path)
     -- Make an asynchronous HTTP GET request using copas.http.request
-    
+    local iid = string.gsub(url, ".*arizona%-rp", "")
+
     local d = file_path:gsub("/[^/]*$", "")
     if not doesDirectoryExist(d) then
     		print(d)
@@ -327,6 +334,7 @@ function download_file(url, file_path)
         print("Error downloading file: HTTP status " .. status .. " (" .. tostring(err) .. ")")
     end
     cacher.working = false
+	imagesthreads[iid].dead = true
 end
 
 function getGameStamina()
@@ -682,6 +690,25 @@ local keyHintFrame = gui.OnFrame(
 		gui.End()
 		gui.PopFont()
 --		end
+	end
+)
+
+-- Download progress - if only i knew how to properly display it huh
+local downloadFrame = gui.OnFrame(
+	function() return cacher.working and #cacher.queue > 0 end,
+	function(player)
+		player.HideCursor = true
+		gui.PushFont(font)
+		sx, sy = getScreenResolution()
+		gui.SetNextWindowPos(gui.ImVec2(sx/2, sy/2), 0, gui.ImVec2(0.5, 0.5))
+		gui.Begin("download", gui.new.bool(cacher.working and #cacher.queue > 0), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
+		gui.Text(u8"Загрузка ресурсов...")
+		if #cacher.queue > 1 then
+			gui.Text(cacher.queue[#cacher.queue].iid)
+		end
+		gui.ProgressBar((cacher.maxqueue - #cacher.queue) / cacher.maxqueue)
+		gui.End()
+		gui.PopFont()
 	end
 )
 
@@ -1235,9 +1262,10 @@ gui.WebImage = function(url, size)
 		imagesbuffer[iid] = -1
 		local file, file_err = io.open(cachepath)
 		if not file then
-			table.insert(cacher.queue, {url = url, cachepath = cachepath})
+			table.insert(cacher.queue, {url = url, cachepath = cachepath, iid = iid})
+			cacher.maxqueue = math.max(#cacher.queue, cacher.maxqueue)
 			imagesthreads[iid] = {dead = false}
-			--imagesthreads[iid] = lua_thread.create(download_file, url, cachepath)
+			download_file(url, cachepath)--lua_thread.create(download_file, url, cachepath)
 		else
 			imagesthreads[iid] = {dead = true}
 			file:close()
