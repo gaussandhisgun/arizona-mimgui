@@ -18,6 +18,14 @@ local u8 = enc.UTF8
 
 local font
 
+function explode_argb(argb)
+  local a = bit.band(bit.rshift(argb, 24), 0xFF)
+  local r = bit.band(bit.rshift(argb, 16), 0xFF)
+  local g = bit.band(bit.rshift(argb, 8), 0xFF)
+  local b = bit.band(argb, 0xFF)
+  return a, r, g, b
+end
+
 local copas = require "copas"
 local socket = require "socket"
 local http = require "copas.http"
@@ -42,6 +50,24 @@ local cfgOpenerDialog = {
 
 inventory = {} -- inventory in particular is a weird one, it gets sent to the client passively and is stored on the client, so we need some kind of persistance to keep it loaded in between script reloads
 -- mostly because we reload the script to set its DPI really
+items_data = {} -- data about items. what else is there to say
+
+function updateItemsData()
+    --async_http_request:create('json', 'GET', "https://raw.githubusercontent.com/FREYM1337/forumnick/main/items_data.json")
+    --async_http_request:create('json', 'GET', "https://items.shinoa.tech/items.php")
+    resp = req.request('GET', "https://server-api.arizona.games/client/json/table/get?project=arizona&server=0&key=inventory_items")
+    if resp.status_code == 200 then
+		items_data = {}
+		items_arz = decodeJson(resp.text)
+		for i,v in pairs(items_arz) do
+			items_data[v.id] = v
+		end
+		--print(DeepPrint(items_data))
+	else
+		printStringNow("Item data update failed~n~Error: '".. resp.status_code .. "'", 5000)
+		print(resp.status_code, resp.err, resp.text)
+	end
+end
 
 c = cfg.load({
 main = {
@@ -59,6 +85,8 @@ staminaBar = {
 	showGameStamina = true,
 }
 }, "../ArizonaMimgui/config.ini")
+
+local MAX_COLUMNS = 6
 
 local cc = {
 	ui = {
@@ -87,6 +115,7 @@ cacher = {
 }
 
 function main()
+	updateItemsData()
 	while true do
 		wait(0)
 		if not cacher.working and #cacher.queue > 0 then
@@ -242,6 +271,30 @@ bonusname = {
 	[24] = "Нельзя перевести во фракцию",
 	[25] = "Нельзя перевести в бизнес",
 	[26] = "Повышенная максимальная скорость",
+}
+
+itemtypes = {
+	[3] = "Аксессуар",
+	[21] = "Объект",
+	[4] = "Деталь тюнинга",
+	[7] = "Покраска",
+	[8] = "Обвес для оружия",
+	[23] = "Визуальный тюнинг",
+	[10] = "Скин",
+	[15] = "Расходник",
+	[76] = "Другое",
+	[57] = "Номерной знак",
+	[31] = "Еда",
+	[41] = "Прицел",
+	[35] = "Аптечка",
+	[20] = "Точильный камень",
+	[24] = "Технический тюнинг",
+	[51] = "Эликсир",
+	[37] = "Выпивка",
+	[55] = "Краситель",
+	[9] = "Оружие",
+	[11] = "Телефон",
+
 }
 
 cdn = {
@@ -1122,15 +1175,21 @@ local invFrame = gui.OnFrame(
 	function(player)
 		local sx, sy = getScreenResolution()
 		for i,container in pairs(inventory) do
-			local col = #container < 6 and (#container > 0 and #container or 1) or 6
+			local col = #container < MAX_COLUMNS and (#container > 0 and #container or 1) or MAX_COLUMNS
 			gui.SetNextWindowSizeConstraints(gui.ImVec2(50 * col * c.ui.density, 50 * c.ui.density), gui.ImVec2(sx * 0.75, sy * 0.75))
 			gui.PushFont(font)
 			gui.Begin("container" .. i, gui.new.bool(s.inventory.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize)
 			gui.Text(u8(getContainerTextId(i)))
 			gui.Columns(col)
+			local max_id = 0
 			for u,item in pairs(container) do
-				gui.InventoryItem(item, gui.ImVec2(50 * c.ui.density, 50 * c.ui.density))
-				gui.NextColumn()
+				max_id = (tonumber(u) > max_id and tonumber(u) or max_id)
+			end
+			for u=0,max_id do
+				if container[u] then
+					gui.InventoryItem(container[u], gui.ImVec2(48 * c.ui.density, 48 * c.ui.density))
+					gui.NextColumn()
+				end
 			end
 			gui.Columns(1)
 			gui.End()
@@ -1140,7 +1199,14 @@ local invFrame = gui.OnFrame(
 )
 
 gui.InventoryItem = function(item, size)
-	gui.BeginChild("item" .. item.slot, size, true, gui.WindowFlags.NoScrollbar)
+	gui.PushStyleVarVec2(gui.StyleVar.WindowPadding, gui.ImVec2(0, 0))
+	gui.PushStyleVarVec2(gui.StyleVar.FramePadding, gui.ImVec2(0, 0))
+	gui.PushStyleVarVec2(gui.StyleVar.ItemSpacing, gui.ImVec2(0, 0))
+	if item.background then
+		local a,r,g,b = explode_argb(item.background)
+		gui.PushStyleColor(gui.Col.ChildBg, gui.ImVec4(a / 255, r / 255, g / 255, b / 255))
+	end
+	gui.BeginChild("item" .. item.slot, size, true, gui.WindowFlags.NoScrollbar + gui.WindowFlags.NoScrollWithMouse)
 	gui.SetCursorPos(gui.ImVec2(0,0))
 	if item.item then
 		gui.WebImage(cdn.res[rescdn] .. "/projects/arizona-rp/assets/images/donate/" .. item.item .. ".png", size)
@@ -1150,6 +1216,30 @@ gui.InventoryItem = function(item, size)
 	gui.SetCursorPos(gui.ImVec2(0,0))
 	if item.text then gui.Text(u8(item.text)) end
 	gui.EndChild()
+	if item.background then
+		gui.PopStyleColor()
+	end
+	gui.PopStyleVar()
+	gui.PopStyleVar()
+	gui.PopStyleVar()
+	if items_data[tonumber(item.item)] then
+		gui.Hint("itemHint" .. item.item .. "#" .. item.slot, getItemHint(item))
+	end
+end
+
+function getItemHint(item)
+	local s = items_data[tonumber(item.item)].name
+	s = s .. ((items_data[tonumber(item.item)].type and itemtypes[items_data[tonumber(item.item)].type]) and "\n" .. u8(itemtypes[items_data[tonumber(item.item)].type]) or "")
+	s = s .. ((item.text and item.text ~= "") and "\n" .. u8(item.text) or "") .. "\n"
+	s = s .. ((items_data[tonumber(item.item)].type) and u8("\nТип предмета: ") .. items_data[tonumber(item.item)].type or "")
+	s = s .. ((items_data[tonumber(item.item)].active and items_data[tonumber(item.item)].active > 0) and u8("\nМожно использовать") or "")
+	s = s .. ((items_data[tonumber(item.item)].acs_slot and items_data[tonumber(item.item)].acs_slot ~= -1) and u8("\nАксессуар для слота: ") .. items_data[tonumber(item.item)].acs_slot or "")
+	s = s .. u8("\nСлот: ") .. item.slot
+	return s
+end
+
+gui.InventoryItemContextMenu = function(container, item)
+
 end
 
 INVENTORY_CONTAINERS = {
