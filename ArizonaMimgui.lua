@@ -83,6 +83,11 @@ ui = {
 staminaBar = {
 	enabled = true,
 	showGameStamina = true,
+},
+legacy = {
+	useLegacyDialogs = true,
+	useLegacyPauseMenu = true,
+	useOtherNametagVariant = false,
 }
 }, "../ArizonaMimgui/config.ini")
 
@@ -115,7 +120,9 @@ cacher = {
 }
 
 function main()
+	while not isSampAvailable() do wait(100) end
 	updateItemsData()
+	lua_thread.create(quesada_dialogs)
 	while true do
 		wait(0)
 		if not cacher.working and #cacher.queue > 0 then
@@ -128,6 +135,7 @@ function main()
 				--imagesthreads[iid] = lua_thread.create(download_file, image.url, image.cachepath)
 			end
 		end
+
 	end
 end
 
@@ -488,6 +496,19 @@ function arz.onArizonaDisplay(packet)
 	if isSampfuncsGlobalVarDefined("ModernControlsInstalled") then
 		mc_compat = true
 	end
+
+    if string.find(packet.text, "event.player.updateMoney") then
+        print("##MONEY", packet.text)
+        local money = decodeJson(string.match(packet.text, '`(.*)`'))[1]
+        --printStringNow(data,1000)
+        if money < 2000000000 then
+            givePlayerMoney(PLAYER_HANDLE,money - getPlayerMoney(PLAYER_HANDLE))
+        else
+            money = -1 * (money / 1000)
+            givePlayerMoney(PLAYER_HANDLE,money - getPlayerMoney(PLAYER_HANDLE))
+        end
+        --int money = getPlayerMoney(Player player)
+    end
 
 	print(DeepPrint(packet))
 	if string.find(packet.text, "cef.modals.showModal") and string.find(packet.text, "interactionSidebar") then
@@ -1268,7 +1289,11 @@ end
 
 INVENTORY_ACTIONS = {
 	init = 0,
-	
+	updateButtons = 1,
+	change = 2,
+	infoData = 3,
+	tradeConfirmation = 4,
+	tradeMoney = 6,
 }
 
 function handleInventoryEvent(action, data)
@@ -1519,6 +1544,11 @@ function ev.onShowDialog(id, style, title, left, right, content)
 		cfgOpenerDialog = {id = id, item = c-1}
 		return {id, style, title, left, right, content}
 	end
+    if style == 6 and c.legacy.useLegacyDialogs then
+        title = convert_money_tags(title)
+        text = convert_money_tags(text)
+        return {id, 1, title, button1, button2, text}
+    end
 	--print(id, style, title, left, right, content)
 end
 
@@ -1534,4 +1564,38 @@ function onScriptTerminate(script, quit)
 	if script == thisScript() then
 		saveInventoryJson()
 	end
+end
+
+----------- Fix money display on legacy HUDs ------------
+
+function ev.onResetPlayerMoney()
+    return false
+end
+
+function ev.onGivePlayerMoney(money)
+    return false
+end
+
+----------------- Legacy dialogs -------------------------
+
+function quesada_dialogs()
+	toggleFn, areEnabledFn = loadDll()
+    if not toggleFn then
+        return print('error load dll!')
+    end
+
+    local ok, err = pcall(function() toggleFn(c.legacy.useLegacyDialogs and 0 or 1) end)
+    if ok then
+        print('CEF Dialogs disabled!')
+    else
+        print('error call ToggleCefDialogs: ' .. tostring(err))
+        return
+    end
+
+    while true do wait(2000)
+        local ok2, result = pcall(areEnabledFn)
+        if ok2 and result ~= 0 then
+            pcall(function() toggleFn(c.legacy.useLegacyDialogs and 0 or 1) end)
+        end
+    end
 end
