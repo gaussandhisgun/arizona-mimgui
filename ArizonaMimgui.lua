@@ -1723,6 +1723,18 @@ try {
 } catch (e) {}
 ]]
 
+local UNFIX_JS = [[
+try {
+  if (window && window.cef && typeof window.cef.HandleGameMenu === 'function') {
+    window.cef.HandleGameMenu(true);
+  }
+
+  if (typeof window.executeEvent === 'function') {
+    window.executeEvent('event.mainMenu.setMainMenuDisabled', `[false]`);
+  }
+} catch (e) {}
+]]
+
 function onWindowMessage(msg, wparam, lparam)
     if msg == WM_KEYDOWN and wparam == VK_ESCAPE and c.legacy.useLegacyPauseMenu then
         evalanon(FIX_JS)
@@ -1734,11 +1746,12 @@ function pauseMenuThread()
         wait(10000)
         evalanon(FIX_JS)
     end
+ 	evalanon(UNFIX_JS)
 end
 
 ------------------- Nametags setting -- by quesada ----
 
-local function quesada_ntags_load()
+function quesada_ntags_load()
     local hChat = kernel32.LoadLibraryA('_chat.asi')
     if hChat == nil or hChat == ffi.cast('void*', 0) then
         print('[CustomNametags] error: _chat.asi не найдена')
