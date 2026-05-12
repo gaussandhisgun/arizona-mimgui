@@ -2,6 +2,7 @@ script_name("arizona-mimgui")
 script_description("An attempt to rewrite Arizona's CEF interfaces using mimgui. Because fuck CEF, that's why")
 script_author("Alex Gravitos aka Безликий")
 
+require('lib.moonloader')
 local ev = require "samp.events"
 --local _, nt = pcall(import, "lib/imgui_notf.lua")
 local arz = require "arizona-events"
@@ -87,11 +88,14 @@ staminaBar = {
 legacy = {
 	useLegacyDialogs = true,
 	useLegacyPauseMenu = true,
-	useOtherNametagVariant = false,
+	useNewNametags = false,
 }
 }, "../ArizonaMimgui/config.ini")
 
 local MAX_COLUMNS = 6
+
+local quesada_ntags_toggle_ntags = nil
+local quesada_ntags_flag_addr    = nil 
 
 local cc = {
 	ui = {
@@ -124,7 +128,8 @@ function main()
 	updateItemsData()
 	if c.legacy.useLegacyDialogs then lua_thread.create(quesada_dialogs) end
 	if c.legacy.useLegacyPauseMenu then lua_thread.create(pauseMenuThread) end
-	
+	quesada_ntags_load()
+	quesada_nametags_force_state(c.legacy.useNewNametags)
 	while true do
 		wait(0)
 		if not cacher.working and #cacher.queue > 0 then
@@ -1580,6 +1585,105 @@ end
 
 ----------------- Legacy dialogs -- by quesada -----------
 
+ffi.cdef[[
+    void* LoadLibraryA(const char* lpLibFileName);
+    void* GetProcAddress(void* hModule, const char* lpProcName);
+    int   FreeLibrary(void* hModule);
+]]
+
+local kernel32 = ffi.load('kernel32')
+
+local function format_with_dots(num) -- https://www.blast.hk/threads/253262/
+    num = math.floor(tonumber(num) or 0)
+    local s = tostring(num)
+    local rev = s:reverse():gsub("(%d%d%d)", "%1.")
+    s = rev:reverse()
+    if s:sub(1, 1) == "." then
+        s = s:sub(2)
+    end
+    return s
+end
+
+local function parse_k_value(str) -- https://www.blast.hk/threads/253262/
+    str = tostring(str or "")
+    str = str:gsub("%.", "")
+    return tonumber(str) or 0
+end
+
+local function build_money(m, kk, k) -- https://www.blast.hk/threads/253262/
+    local total = 0
+
+    if m then
+        total = total + (tonumber(m) or 0) * 1000000000
+    end
+
+    if kk then
+        total = total + (tonumber(kk) or 0) * 1000000
+    end
+
+    if k then
+        total = total + parse_k_value(k)
+    end
+
+    return format_with_dots(total)
+end
+
+local function convert_money_tags(text) -- https://www.blast.hk/threads/253262/
+    if type(text) ~= "string" or text == "" then
+        return text
+    end
+
+    text = text:gsub(":M:%s*(%d+)%s*:KK:%s*(%d+)%s*:K:%s*([%d%.]+)", function(m, kk, k)
+        return build_money(m, kk, k)
+    end)
+
+    text = text:gsub(":M:%s*(%d+)%s*:KK:%s*(%d+)", function(m, kk)
+        return build_money(m, kk, nil)
+    end)
+
+    text = text:gsub(":M:%s*(%d+)%s*:K:%s*([%d%.]+)", function(m, k)
+        return build_money(m, nil, k)
+    end)
+
+    text = text:gsub(":KK:%s*(%d+)%s*:K:%s*([%d%.]+)", function(kk, k)
+        return build_money(nil, kk, k)
+    end)
+
+    text = text:gsub(":M:%s*(%d+)", function(m)
+        return build_money(m, nil, nil)
+    end)
+
+    text = text:gsub(":KK:%s*(%d+)", function(kk)
+        return build_money(nil, kk, nil)
+    end)
+
+    text = text:gsub(":K:%s*([%d%.]+)", function(k)
+        return build_money(nil, nil, k)
+    end)
+
+    return text
+end
+
+function loadDll()
+    local hDll = kernel32.LoadLibraryA('vorbisFile.dll')
+    if hDll == nil or hDll == ffi.cast('void*', 0) then
+        print('error in LoadLibraryA')
+        return nil, nil
+    end
+    local fnToggle = kernel32.GetProcAddress(hDll, 'ToggleCefDialogs')
+    local fnAreEnabled = kernel32.GetProcAddress(hDll, 'AreCefDialogsEnabled')
+    if fnToggle == nil or fnToggle == ffi.cast('void*', 0) then
+        print('ToggleCefDialogs not found')
+        return nil, nil
+    end
+    if fnAreEnabled == nil or fnAreEnabled == ffi.cast('void*', 0) then
+        print('AreCefDialogsEnabled not found')
+        return nil, nil
+    end
+    return ffi.cast('void(__cdecl*)(int)', fnToggle),
+           ffi.cast('int(__cdecl*)(void)', fnAreEnabled)
+end
+
 function quesada_dialogs()
 	toggleFn, areEnabledFn = loadDll()
     if not toggleFn then
@@ -1630,4 +1734,50 @@ function pauseMenuThread()
         wait(10000)
         evalanon(FIX_JS)
     end
+end
+
+------------------- Nametags setting -- by quesada ----
+
+local function quesada_ntags_load()
+    local hChat = kernel32.LoadLibraryA('_chat.asi')
+    if hChat == nil or hChat == ffi.cast('void*', 0) then
+        print('[CustomNametags] error: _chat.asi не найдена')
+        return false
+    end
+    local fnPtr = kernel32.GetProcAddress(hChat, 'toggle_nametags')
+    if fnPtr == nil or fnPtr == ffi.cast('void*', 0) then
+        print('error: toggle_nametags не найдена')
+        return false
+    end
+    -- +0: 55        push ebp
+    -- +1: 8B EC     mov ebp, esp
+    -- +3: 8A 45 08  mov al, [ebp+8]
+    -- +6: A2        mov [quesada_ntags_flag_addr]
+    -- +7: XX XX XX XX (4)
+    local fn_va = tonumber(ffi.cast('uint32_t', fnPtr))
+    local ok, opcode = pcall(readMemory, fn_va + 6, 1, false)
+    if not ok or opcode ~= 0xA2 then
+        print(string.format('error: 0x%02X > +6', opcode or 0))
+        return false
+    end
+    local ok2, addr = pcall(readMemory, fn_va + 7, 4, false)
+    if not ok2 then
+        print('error: unknown flag')
+        return false
+    end
+    quesada_ntags_flag_addr    = addr
+    quesada_ntags_toggle_ntags = ffi.cast('void(__cdecl*)(bool)', fnPtr)
+    print(string.format('toggle_nametags @ 0x%08X', fn_va))
+    print(string.format('quesada_ntags_flag_addr = 0x%08X', quesada_ntags_flag_addr))
+    return true
+end
+
+function quesada_nametags_toggle_fn()
+    local ok, v = pcall(readMemory, quesada_ntags_flag_addr, 1, false)
+    local enabled = ok and v == 1
+    pcall(function() quesada_ntags_toggle_ntags(not enabled) end)
+end
+
+function quesada_nametags_force_state(enable)
+    pcall(function() quesada_ntags_toggle_ntags(enable) end)
 end
