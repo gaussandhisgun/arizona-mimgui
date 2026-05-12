@@ -315,15 +315,21 @@ itemtypes = {
 cdn = {
 	res = {
 		["0"] = 'https://cdn.azresources.cloud',
+		[0] = 'https://cdn.azresources.cloud',
   		["1"] = 'https://reserve-cdn.azresources.cloud',
+  		[1] = 'https://reserve-cdn.azresources.cloud',
 	},
 	sounds = {
 		["0"] = 'https://cdn.azsounds.cloud',
   		["1"] = 'https://reserve-cdn.azsounds.cloud',
+  		[0] = 'https://cdn.azsounds.cloud',
+  		[1] = 'https://reserve-cdn.azsounds.cloud',
 	},
 	serverapi = {
 		["0"] = 'https://server-api.arizona.games',
 		["1"] = 'https://reserve-server-api.arizona.games',
+		[0] = 'https://server-api.arizona.games',
+		[1] = 'https://reserve-server-api.arizona.games',
 	},
 }
 
