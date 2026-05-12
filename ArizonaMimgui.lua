@@ -122,7 +122,9 @@ cacher = {
 function main()
 	while not isSampAvailable() do wait(100) end
 	updateItemsData()
-	lua_thread.create(quesada_dialogs)
+	if c.legacy.useLegacyDialogs then lua_thread.create(quesada_dialogs) end
+	if c.legacy.useLegacyPauseMenu then lua_thread.create(pauseMenuThread) end
+	
 	while true do
 		wait(0)
 		if not cacher.working and #cacher.queue > 0 then
@@ -1576,7 +1578,7 @@ function ev.onGivePlayerMoney(money)
     return false
 end
 
------------------ Legacy dialogs -------------------------
+----------------- Legacy dialogs -- by quesada -----------
 
 function quesada_dialogs()
 	toggleFn, areEnabledFn = loadDll()
@@ -1592,10 +1594,40 @@ function quesada_dialogs()
         return
     end
 
-    while true do wait(2000)
+    while c.legacy.useLegacyDialogs do wait(2000)
         local ok2, result = pcall(areEnabledFn)
         if ok2 and result ~= 0 then
             pcall(function() toggleFn(c.legacy.useLegacyDialogs and 0 or 1) end)
         end
+    end
+end
+
+----------------- Legacy pause menu -- by Codex -------------
+
+local WM_KEYDOWN = 0x0100
+local VK_ESCAPE = 0x1B
+
+local FIX_JS = [[
+try {
+  if (window && window.cef && typeof window.cef.HandleGameMenu === 'function') {
+    window.cef.HandleGameMenu(false);
+  }
+
+  if (typeof window.executeEvent === 'function') {
+    window.executeEvent('event.mainMenu.setMainMenuDisabled', `[true]`);
+  }
+} catch (e) {}
+]]
+
+function onWindowMessage(msg, wparam, lparam)
+    if msg == WM_KEYDOWN and wparam == VK_ESCAPE and c.legacy.useLegacyPauseMenu then
+        evalanon(FIX_JS)
+    end
+end
+
+function pauseMenuThread()
+	while c.legacy.useLegacyPauseMenu do
+        wait(10000)
+        evalanon(FIX_JS)
     end
 end
