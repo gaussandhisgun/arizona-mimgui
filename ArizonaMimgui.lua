@@ -18,6 +18,9 @@ enc.default = "CP1251"
 local u8 = enc.UTF8
 
 local font
+local font16
+local clockfont
+local datefont
 
 function explode_argb(argb)
   local a = bit.band(bit.rshift(argb, 24), 0xFF)
@@ -25,6 +28,19 @@ function explode_argb(argb)
   local g = bit.band(bit.rshift(argb, 8), 0xFF)
   local b = bit.band(argb, 0xFF)
   return a, r, g, b
+end
+
+function join_argb(a, r, g, b)
+    local argb = b  -- b
+    argb = bit.bor(argb, bit.lshift(g, 8))  -- g
+    argb = bit.bor(argb, bit.lshift(r, 16)) -- r
+    argb = bit.bor(argb, bit.lshift(a, 24)) -- a
+    return argb
+end
+
+function argb_abgr(argb)
+	local a, r, g, b = explode_argb(argb)
+	return join_argb(a, b, g, r)
 end
 
 local copas = require "copas"
@@ -70,6 +86,8 @@ function updateItemsData()
 	end
 end
 
+TIMEZONE = 3
+
 c = cfg.load({
 main = {
 	disableOriginalInterfaces = true,
@@ -77,6 +95,7 @@ main = {
 	leftAlignedCars = false,
 	centeredCarInfoPanel = true,
 	replaceInventory = false,
+	replaceTime = false,
 },
 ui = {
 	density = 1,
@@ -253,6 +272,13 @@ s = {
 	inventory = {
 		visible = false,
 	},
+	time = {
+		visible = false,
+		components = {},
+		timestamp = 0,
+		playedToday = 0,
+		playedHour = 0,
+	}
 }
 
 imagesbuffer = {}
@@ -500,7 +526,10 @@ gui.OnInitialize(function()
     config.MergeMode = true
     config.PixelSnapH = true
     glyph_ranges = gui.GetIO().Fonts:GetGlyphRangesCyrillic() 
-    font = gui.GetIO().Fonts:AddFontFromFileTTF(getFolderPath(0x14)..'\\arial-bold.ttf', math.floor(12 * c.ui.density), _, glyph_ranges)
+    font = gui.GetIO().Fonts:AddFontFromFileTTF(getFolderPath(0x14)..'\\arialbd.ttf', math.floor(12 * c.ui.density), _, glyph_ranges)
+	font16 = gui.GetIO().Fonts:AddFontFromFileTTF(getFolderPath(0x14)..'\\arialbd.ttf', math.floor(16 * c.ui.density), _, glyph_ranges)
+	datefont = gui.GetIO().Fonts:AddFontFromFileTTF(getFolderPath(0x14)..'\\arialbd.ttf', math.floor(20 * c.ui.density), _, glyph_ranges)
+	clockfont = gui.GetIO().Fonts:AddFontFromFileTTF(getFolderPath(0x14)..'\\ariblk.ttf', 64, _, glyph_ranges)
     iconRanges = gui.new.ImWchar[3](fa.min_range, fa.max_range, 0)
     gui.GetIO().Fonts:AddFontFromMemoryCompressedBase85TTF(fa.get_font_data_base85('solid'), math.floor(14 * c.ui.density), config, iconRanges) -- solid - ÚËÔ ËÍÓÌÓÍ, Ú‡Í ÊÂ ÂÒÚ¸ thin, regular, light Ë duotone
 end)
@@ -685,7 +714,22 @@ function arz.onArizonaDisplay(packet)
 			s.inventory.visible = false
 		end
 	end
-	
+
+	if string.find(packet.text, "event.arizonahud.setTimeWidgetInfo") then
+		local data = decodeJson(string.match(packet.text, "`(.*)`"))[1]
+		s.time.visible = true
+		s.time.timestamp = data.timestamp + TIMEZONE * 60 * 60
+		s.time.playedToday = data.playedToday
+		s.time.playedHour = data.playedHour
+		s.time.components = data.components
+		lua_thread.create(timeTick)
+		return not (c.main.disableOriginalInterfaces and c.main.replaceTime)
+	end
+
+	if string.find(packet.text, "event.arizonahud.setTimeWidgetHide") then
+		s.time.visible = false
+	end
+
 	if string.find(packet.text, "event.vehicleMenu.setVehicleInfoList") then
 		s.carinfo.visible = true
 	end
@@ -1203,6 +1247,99 @@ local staminaFrame = gui.OnFrame(
 	end
 )
 
+-- cef /time replacement
+function timeTick()
+	while s.time.visible do
+		wait(1000)
+		s.time.timestamp = s.time.timestamp + 1
+		s.time.playedHour = s.time.playedHour + 1
+	end
+end
+
+local timeMonths = {
+	"ﬂÕ¬¿–ﬂ", "‘≈¬–¿Àﬂ", "Ã¿–“¿", "¿œ–≈Àﬂ", "Ã¿ﬂ", "»ﬁÕﬂ",
+	"»ﬁÀﬂ", "¿¬√”—“¿", "—≈Õ“ﬂ¡–ﬂ", "Œ “ﬂ¡–ﬂ", "ÕŒﬂ¡–ﬂ", "ƒ≈ ¿¡–ﬂ"
+}
+
+function stamptostring(timestamp)
+	if timestamp > 3600 then
+		return os.date("!%H:%M:%S", timestamp)
+	else
+		return os.date("!%M:%S", timestamp)
+	end
+end
+
+local timeFrame = gui.OnFrame(
+	function() return c.main.replaceTime and s.time.visible end,
+	function(player)
+		player.HideCursor = true
+		local sx, sy = getScreenResolution()
+		gui.PushFont(font)
+		gui.SetNextWindowPos(gui.ImVec2(sx, sy - 50 * c.ui.density), 0, gui.ImVec2(1, 1))
+		gui.SetNextWindowSizeConstraints(gui.ImVec2(230 * c.ui.density, 0), gui.ImVec2(230 * c.ui.density, sy))
+		gui.PushStyleColor(gui.Col.WindowBg, gui.ImVec4(0,0,0,0))
+		gui.Begin("timewindow", gui.new.bool(s.time.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
+		gui.PushFont(datefont)
+		local m = timeMonths[tonumber(os.date("!%m", s.time.timestamp))]
+		gui.RightTextColored(gui.ImVec4(0.7, 0.7, 0.7, 1), os.date("!%d " .. u8(m) .. " %Y", s.time.timestamp))
+		gui.PopFont()
+		gui.SetCursorPos(gui.GetCursorPos() + gui.ImVec2(0, -10))
+		gui.PushFont(clockfont)
+		gui.Text(os.date("!%H:%M:%S", s.time.timestamp))
+		gui.PopFont()
+
+		gui.PushStyleColor(gui.Col.ChildBg, gui.ImVec4(0.2, 0.2, 0.2, 0.7))
+		gui.BeginChild("#online", gui.ImVec2(220 * c.ui.density, 22 * c.ui.density), true)
+		--gui.TextColored(gui.ImVec4(0.9, 0.9, 0.9, 1), u8"¬¿ÿ ŒÕÀ¿…Õ")
+		--gui.SameLine()
+		gui.TextColored(gui.ImVec4(0.7, 0.7, 0.7, 1),u8"—Â„Ó‰Ìˇ")
+		gui.SameLine()
+		gui.Text(stamptostring(s.time.playedToday))
+		gui.SameLine()
+		gui.TextColored(gui.ImVec4(0.7, 0.7, 0.7, 1), u8"«‡ ˜‡Ò")
+		gui.SameLine()
+		gui.Text(stamptostring(s.time.playedHour))
+		gui.EndChild()
+		gui.PopStyleColor()
+		gui.Columns(2)
+		local DL = gui.GetWindowDrawList()
+		local wPos = gui.GetWindowPos()
+		for i,component in pairs(s.time.components) do
+			local cPos = gui.GetCursorPos()
+			local leftcolor = argb_abgr(tonumber(component.gradientColors[1]:gsub("#", "FF"), 16))
+			local rightcolor = argb_abgr(tonumber(component.gradientColors[2]:gsub("#", "FF"), 16))
+			DrawRoundedGradientRect(
+				DL,
+				wPos + cPos,
+				gui.ImVec2(100 * c.ui.density, 40 * c.ui.density),
+				leftcolor, rightcolor, leftcolor, rightcolor,
+				5, 12
+			)
+			cpos = gui.GetCursorPos()
+			gui.SetCursorPos(cpos + gui.ImVec2(40 * c.ui.density, 0))
+			gui.WebImage(cdn.res[rescdn] .. "/projects/arizona-rp/systems/time/icons/" .. component.image:gsub("webp", "png"), gui.ImVec2(60 * c.ui.density, 40 * c.ui.density))
+			gui.SetCursorPos(cpos)
+			gui.BeginChild("#" .. u8(component.title), gui.ImVec2(100 * c.ui.density, 40 * c.ui.density), true)
+			gui.Text(u8(component.title))
+			gui.Text(u8(component.description and component.description or stamptostring(component.timer)))
+			gui.EndChild()
+			gui.NextColumn()
+		end
+		gui.Columns(1)
+		gui.SetCursorPos(gui.GetCursorPos() + gui.ImVec2(100 * c.ui.density, 5 * c.ui.density))
+
+		gui.PushFont(font16)
+		gui.Text(u8"«¿ –€“‹")
+		gui.PopFont()
+		gui.SameLine()
+		gui.SetCursorPos(gui.GetCursorPos() - gui.ImVec2(0, 5 * c.ui.density))
+		gui.HintButton(u8("Esc"), "")
+		gui.End()
+		gui.PopStyleColor()
+		gui.PopFont()
+	end
+)
+
 -- inventory
 local invFrame = gui.OnFrame(
 	function() return s.inventory.visible and c.main.replaceInventory and not sampIsDialogActive() and not sampIsChatInputActive() end,
@@ -1311,6 +1448,7 @@ INVENTORY_ACTIONS = {
 
 function handleInventoryEvent(action, data)
 	if action == INVENTORY_ACTIONS.init and data then
+		if not data or not data.type then return end
 		if not inventory[data.type] then inventory[data.type] = {} end
 		for i,item in pairs(data.items) do
 			local slot = item.slot
@@ -1345,6 +1483,86 @@ end
 
 loadInventoryJson()
 ------------------------------------------- MIMGUI FANCIES --------------------------------------------------
+
+function gui.RightText(text)
+ 
+  	gui.SetCursorPosX(gui.GetWindowWidth() - gui.CalcTextSize(text).x - gui.GetStyle().WindowPadding.x);
+    gui.Text(text);
+end
+
+function gui.RightTextColored(color, text)
+	gui.SetCursorPosX(gui.GetWindowWidth() - gui.CalcTextSize(text).x - gui.GetStyle().WindowPadding.x);
+    gui.TextColored(color, text);
+end
+
+function DrawRoundedGradientRect(DL, pos, size, colTL, colTR, colBL, colBR, radius, segments)
+    segments = segments or 12
+    radius = radius or 0
+    radius = math.min(radius, size.x / 2, size.y / 2)
+
+    local function drawCorner(DL, cx, cy, radius, color, quadrant, segments)
+        segments = segments or 12
+        local startAngle, endAngle
+
+        if quadrant == 1 then
+            startAngle, endAngle = math.pi, math.pi * 1.5
+        elseif quadrant == 2 then
+            startAngle, endAngle = math.pi * 1.5, math.pi * 2
+        elseif quadrant == 3 then
+            startAngle, endAngle = math.pi * 0.5, math.pi
+        elseif quadrant == 4 then
+            startAngle, endAngle = 0, math.pi * 0.5
+        end
+
+        DL:PathClear()
+        DL:PathLineTo(gui.ImVec2(cx, cy))
+        for i = 0, segments do
+            local angle = startAngle + (endAngle - startAngle) * (i / segments)
+            DL:PathLineTo(gui.ImVec2(cx + math.cos(angle) * radius, cy + math.sin(angle) * radius))
+        end
+        DL:PathFillConvex(color)
+    end
+
+    local cxTL, cyTL = pos.x + radius, pos.y + radius
+    local cxTR, cyTR = pos.x + size.x - radius, pos.y + radius
+    local cxBL, cyBL = pos.x + radius, pos.y + size.y - radius
+    local cxBR, cyBR = pos.x + size.x - radius, pos.y + size.y - radius
+
+    drawCorner(DL, cxTL, cyTL, radius, colTL, 1, segments)
+    drawCorner(DL, cxTR, cyTR, radius, colTR, 2, segments)
+    drawCorner(DL, cxBL, cyBL, radius, colBL, 3, segments)
+    drawCorner(DL, cxBR, cyBR, radius, colBR, 4, segments)
+
+    DL:AddRectFilledMultiColor(
+        gui.ImVec2(pos.x + radius, pos.y),
+        gui.ImVec2(pos.x + size.x - radius, pos.y + radius),
+        colTL, colTR, colTR, colTL
+    )
+
+    DL:AddRectFilledMultiColor(
+        gui.ImVec2(pos.x + radius, pos.y + size.y - radius),
+        gui.ImVec2(pos.x + size.x - radius, pos.y + size.y),
+        colBL, colBR, colBR, colBL
+    )
+
+    DL:AddRectFilledMultiColor(
+        gui.ImVec2(pos.x, pos.y + radius),
+        gui.ImVec2(pos.x + radius, pos.y + size.y - radius),
+        colTL, colTL, colBL, colBL
+    )
+
+    DL:AddRectFilledMultiColor(
+        gui.ImVec2(pos.x + size.x - radius, pos.y + radius),
+        gui.ImVec2(pos.x + size.x, pos.y + size.y - radius),
+        colTR, colTR, colBR, colBR
+    )
+
+    DL:AddRectFilledMultiColor(
+        gui.ImVec2(pos.x + radius, pos.y + radius),
+        gui.ImVec2(pos.x + size.x - radius, pos.y + size.y - radius),
+        colTL, colTR, colBR, colBL
+    )
+end
 
 function gui.ColoredButton(text,hex,trans,size)
     local r,g,b = tonumber("0x"..hex:sub(1,2)), tonumber("0x"..hex:sub(3,4)), tonumber("0x"..hex:sub(5,6))
