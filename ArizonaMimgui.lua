@@ -108,6 +108,9 @@ legacy = {
 	useLegacyDialogs = true,
 	useLegacyPauseMenu = true,
 	useNewNametags = false,
+},
+inventory = {
+	usePaginatedInventory = false,
 }
 }, "../ArizonaMimgui/config.ini")
 
@@ -149,6 +152,10 @@ function main()
 	if c.legacy.useLegacyPauseMenu then lua_thread.create(pauseMenuThread) end
 	quesada_ntags_load()
 	quesada_nametags_force_state(c.legacy.useNewNametags)
+
+	sampRegisterChatCommand("tinv",function() s.inventory.visible = not s.inventory.visible end)
+	sampRegisterChatCommand("amimset",function() s.settings.visible[0] = not s.settings.visible[0] end)
+
 	while true do
 		wait(0)
 		if not cacher.working and #cacher.queue > 0 then
@@ -278,7 +285,8 @@ s = {
 		timestamp = 0,
 		playedToday = 0,
 		playedHour = 0,
-	}
+	},
+
 }
 
 imagesbuffer = {}
@@ -479,6 +487,180 @@ cds = {
 	toast = nil,
 }
 
+--------------------- persistence -------------------------
+
+local persistence_write, persistence_writeIndent, persistence_writers, persistence_refCount;
+
+persistence =
+{
+	store = function (path, ...)
+		local file, e = io.open(path, "w");
+		if not file then
+			return error(e);
+		end
+		local n = select("#", ...);
+		-- Count references
+		local objRefCount = {}; -- Stores reference that will be exported
+		for i = 1, n do
+			persistence_refCount(objRefCount, (select(i,...)));
+		end;
+		-- Export Objects with more than one ref and assign name
+		-- First, create empty tables for each
+		local objRefNames = {};
+		local objRefIdx = 0;
+		file:write("-- Persistent Data\n");
+		file:write("local multiRefObjects = {\n");
+		for obj, count in pairs(objRefCount) do
+			if count > 1 then
+				objRefIdx = objRefIdx + 1;
+				objRefNames[obj] = objRefIdx;
+				file:write("{};"); -- table objRefIdx
+			end;
+		end;
+		file:write("\n} -- multiRefObjects\n");
+		-- Then fill them (this requires all empty multiRefObjects to exist)
+		for obj, idx in pairs(objRefNames) do
+			for k, v in pairs(obj) do
+				file:write("multiRefObjects["..idx.."][");
+				persistence_write(file, k, 0, objRefNames);
+				file:write("] = ");
+				persistence_write(file, v, 0, objRefNames);
+				file:write(";\n");
+			end;
+		end;
+		-- Create the remaining objects
+		for i = 1, n do
+			file:write("local ".."obj"..i.." = ");
+			persistence_write(file, (select(i,...)), 0, objRefNames);
+			file:write("\n");
+		end
+		-- Return them
+		if n > 0 then
+			file:write("return obj1");
+			for i = 2, n do
+				file:write(" ,obj"..i);
+			end;
+			file:write("\n");
+		else
+			file:write("return\n");
+		end;
+		if type(path) == "string" then
+			file:close();
+		end;
+	end;
+
+	load = function (path)
+		local f, e;
+		if type(path) == "string" then
+			f, e = loadfile(path);
+		else
+			f, e = path:read('*a')
+		end
+		if f then
+			return f();
+		else
+			return nil, e;
+		end;
+	end;
+}
+
+-- Private methods
+
+-- write thing (dispatcher)
+persistence_write = function (file, item, level, objRefNames)
+	persistence_writers[type(item)](file, item, level, objRefNames);
+end;
+
+-- write indent
+persistence_writeIndent = function (file, level)
+	for i = 1, level do
+		file:write("\t");
+	end;
+end;
+
+-- recursively count references
+persistence_refCount = function (objRefCount, item)
+	-- only count reference types (tables)
+	if type(item) == "table" then
+		-- Increase ref count
+		if objRefCount[item] then
+			objRefCount[item] = objRefCount[item] + 1;
+		else
+			objRefCount[item] = 1;
+			-- If first encounter, traverse
+			for k, v in pairs(item) do
+				persistence_refCount(objRefCount, k);
+				persistence_refCount(objRefCount, v);
+			end;
+		end;
+	end;
+end;
+
+-- Format items for the purpose of restoring
+persistence_writers = {
+	["nil"] = function (file, item)
+			file:write("nil");
+		end;
+	["number"] = function (file, item)
+			file:write(tostring(item));
+		end;
+	["string"] = function (file, item)
+			file:write(string.format("%q", item));
+		end;
+	["boolean"] = function (file, item)
+			if item then
+				file:write("true");
+			else
+				file:write("false");
+			end
+		end;
+	["table"] = function (file, item, level, objRefNames)
+			local refIdx = objRefNames[item];
+			if refIdx then
+				-- Table with multiple references
+				file:write("multiRefObjects["..refIdx.."]");
+			else
+				-- Single use table
+				file:write("{\n");
+				for k, v in pairs(item) do
+					persistence_writeIndent(file, level+1);
+					file:write("[");
+					persistence_write(file, k, level+1, objRefNames);
+					file:write("] = ");
+					persistence_write(file, v, level+1, objRefNames);
+					file:write(";\n");
+				end
+				persistence_writeIndent(file, level);
+				file:write("}");
+			end;
+		end;
+	["function"] = function (file, item)
+			-- Does only work for "normal" functions, not those
+			-- with upvalues or c functions
+			local dInfo = debug.getinfo(item, "uS");
+			if dInfo.nups > 0 then
+				file:write("nil --[[functions with upvalue not supported]]");
+			elseif dInfo.what ~= "Lua" then
+				file:write("nil --[[non-lua function not supported]]");
+			else
+				local r, s = pcall(string.dump,item);
+				if r then
+					file:write(string.format("loadstring(%q)", s));
+				else
+					file:write("nil --[[function could not be dumped]]");
+				end
+			end
+		end;
+	["thread"] = function (file, item)
+			file:write("nil --[[thread]]\n");
+		end;
+	["userdata"] = function (file, item)
+			file:write("nil --[[userdata]]\n");
+		end;
+}
+
+--------------------------------------------------
+
 function getChatPos()
 	local strEl = getStructElement(sampGetInputInfoPtr(), 0x8, 4)
     local X = getStructElement(strEl, 0x8, 4) + 12.5
@@ -522,16 +704,16 @@ end
 
 gui.OnInitialize(function()
     gui.GetIO().IniFilename = nil
-    local config = gui.ImFontConfig()
+	local config = gui.ImFontConfig()
     config.MergeMode = true
     config.PixelSnapH = true
     glyph_ranges = gui.GetIO().Fonts:GetGlyphRangesCyrillic() 
     font = gui.GetIO().Fonts:AddFontFromFileTTF(getFolderPath(0x14)..'\\arialbd.ttf', math.floor(12 * c.ui.density), _, glyph_ranges)
 	font16 = gui.GetIO().Fonts:AddFontFromFileTTF(getFolderPath(0x14)..'\\arialbd.ttf', math.floor(16 * c.ui.density), _, glyph_ranges)
 	datefont = gui.GetIO().Fonts:AddFontFromFileTTF(getFolderPath(0x14)..'\\arialbd.ttf', math.floor(20 * c.ui.density), _, glyph_ranges)
-	clockfont = gui.GetIO().Fonts:AddFontFromFileTTF(getFolderPath(0x14)..'\\ariblk.ttf', 64, _, glyph_ranges)
-    iconRanges = gui.new.ImWchar[3](fa.min_range, fa.max_range, 0)
-    gui.GetIO().Fonts:AddFontFromMemoryCompressedBase85TTF(fa.get_font_data_base85('solid'), math.floor(14 * c.ui.density), config, iconRanges) -- solid - тип иконок, так же есть thin, regular, light и duotone
+	clockfont = gui.GetIO().Fonts:AddFontFromFileTTF(getFolderPath(0x14)..'\\ariblk.ttf', math.floor(64 * c.ui.density), _, glyph_ranges)
+	iconRanges = gui.new.ImWchar[3](fa.min_range, fa.max_range, 0)
+    gui.GetIO().Fonts:AddFontFromMemoryCompressedBase85TTF(fa.get_font_data_base85('solid'), math.floor(14 * c.ui.density), config, iconRanges)
 end)
 
 function arz.onArizonaDisplay(packet)	
@@ -1341,8 +1523,32 @@ local timeFrame = gui.OnFrame(
 )
 
 -- inventory
+
+INVENTORY_CONTAINERS = {
+	player = 1, -- игрок
+	accs = 2, -- аксы из 1 сета
+	trade = 4, -- трейд
+	trunk = 8, -- багажник
+	enhs = 10, -- улучшения 
+	utils = 17, -- инструменты (бронежилет, чемодан)
+	car_paintjob = 18, -- аэрография на машине
+	car_tt = 19, -- тт на машине
+	car_tech = 23, -- тех. модификации на машине
+	car_visual = 12, -- виз. модификации на машине
+	car_plate = 36, -- номер машины
+	skin = 20, -- скины
+	skin_alt = 22, -- скины но по-другому 
+	cardholder = 24, -- бумажник
+	secaccs = 30, -- аксы охранников
+	security = 33, -- инвентарь охранника
+}
+
+local inventoriesHandledElsewhere = {
+	[INVENTORY_CONTAINERS.player] = true,
+}
+
 local invFrame = gui.OnFrame(
-	function() return s.inventory.visible and c.main.replaceInventory and not sampIsDialogActive() and not sampIsChatInputActive() end,
+	function() return false and s.inventory.visible and c.main.replaceInventory and not sampIsDialogActive() and not sampIsChatInputActive() end,
 	function(player)
 		local sx, sy = getScreenResolution()
 		for i,container in pairs(inventory) do
@@ -1358,7 +1564,7 @@ local invFrame = gui.OnFrame(
 			end
 			for u=0,max_id do
 				if container[u] then
-					gui.InventoryItem(container[u], gui.ImVec2(48 * c.ui.density, 48 * c.ui.density))
+					gui.InventoryItem(container[u], gui.ImVec2(48 * c.ui.density, 48 * c.ui.density), i)
 					gui.NextColumn()
 				end
 			end
@@ -1369,7 +1575,164 @@ local invFrame = gui.OnFrame(
 	end
 )
 
-gui.InventoryItem = function(item, size)
+local inventoryPagination = {
+	min = 0,
+	max = 35,
+	page = 1
+}
+
+local InventoryTabs = {
+	player = 0,
+}
+
+local InventoryTab = 0
+local PlayerSet = 1
+
+local EnhancementsShown = gui.new.bool(false)
+
+local playerInventory = gui.OnFrame(
+	function() return s.inventory.visible and c.main.replaceInventory and not sampIsDialogActive() and not sampIsChatInputActive() end,
+	function(player)
+		local iw, ih = 600, 440
+		local sx, sy = getScreenResolution()
+		gui.PushFont(font)
+		gui.SetNextWindowPos(gui.ImVec2(sx/2, sy/2), 0, gui.ImVec2(0.5, 0.5))
+		gui.SetNextWindowSizeConstraints(gui.ImVec2(iw * c.ui.density, ih * c.ui.density), gui.ImVec2(iw * c.ui.density, ih * c.ui.density))
+		gui.Begin("playerinventory", gui.new.bool(s.inventory.visible), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoScrollbar + gui.WindowFlags.NoScrollWithMouse)
+		local wpos = gui.GetWindowPos()
+		gui.SetCursorPos(gui.ImVec2(0,0))
+		gui.BeginChild("playerinventoryleft", gui.ImVec2(250 * c.ui.density, ih * c.ui.density), true)
+			if InventoryTab == InventoryTabs.player then
+				
+				if gui.Button(u8"Помощь", gui.ImVec2(75 * c.ui.density, 30 * c.ui.density)) then sampSendChat("/help") end
+				gui.SameLine()
+				if gui.Button(u8"Репорт", gui.ImVec2(75 * c.ui.density, 30 * c.ui.density)) then sampSendChat("/report") end
+				gui.SameLine()
+				if gui.Button(u8"GPS", gui.ImVec2(75 * c.ui.density, 30 * c.ui.density)) then sampSendChat("/gps") end
+
+				wpos = wpos + gui.GetCursorPos()
+				gui.Checkbox("##Enhancements", EnhancementsShown)
+				gui.Hint("##EnhancementsHint", u8"Улучшения, обувь и ножи")
+				gui.SameLine(70 * c.ui.density)
+
+				--gui.SetCursorPosX(70 * c.ui.density)
+				gui.InventoryContainer(inventory[INVENTORY_CONTAINERS.accs], INVENTORY_CONTAINERS.accs, 3, gui.ImVec2(170 * c.ui.density, 110 * c.ui.density), (PlayerSet - 1) * 6, (PlayerSet * 6) - 1)
+				--gui.SetCursorPos(gui.GetCursorPos() + gui.ImVec2(0, -80 * c.ui.density))
+				
+				gui.InventoryItem(inventory[INVENTORY_CONTAINERS.skin_alt][PlayerSet - 1], gui.ImVec2(48 * c.ui.density, 48*c.ui.density), 22)
+				gui.SameLine(100 * c.ui.density)
+				gui.InventoryContainer(inventory[INVENTORY_CONTAINERS.utils], INVENTORY_CONTAINERS.utils, 2, gui.ImVec2(115 * c.ui.density, 58 * c.ui.density), (PlayerSet - 1) * 2, (PlayerSet * 2) - 1)
+				
+				gui.SetCursorPosX(90 * c.ui.density)
+
+				if gui.Button("1##Setset1") then
+					sendcef("inventory.setAccessoryPage|1")
+					PlayerSet = 1
+				end
+				gui.SameLine()
+				if gui.Button("2##Setset2") then
+					sendcef("inventory.setAccessoryPage|2")
+					PlayerSet = 2
+				end
+				gui.SameLine()
+				if gui.Button("3##Setset3") then
+					sendcef("inventory.setAccessoryPage|3")
+					PlayerSet = 3
+				end
+
+				local buts = gui.ImVec2(115  * c.ui.density, 43 * c.ui.density)
+
+				if gui.Button(u8"Меню", buts) then sampSendChat("/mn") end
+				gui.SameLine()
+				if gui.Button(u8"Настройки", buts) then sampSendChat("/settings") end
+				if gui.Button(u8"Транспорт", buts) then sampSendChat("/cars") end
+				gui.SameLine()
+				if gui.Button(u8"Бизнес", buts) then sampSendChat("/biz") end
+				if gui.Button(u8"Донат", buts) then sampSendChat("/donate") end
+				gui.SameLine()
+				if gui.Button(u8"Семья", buts) then sampSendChat("/fammenu") end
+				if gui.Button(u8"Квесты", buts) then sampSendChat("/quest") end
+				gui.SameLine()
+				if gui.Button(u8"Достижения", buts) then sampSendChat("/rewards") end
+
+				gui.SetCursorPos(wpos - gui.GetWindowPos() + gui.ImVec2(10, 60))
+				gui.TextColored(gui.ImVec4(0.5,0.5,0.5,0.5), u8"ARIZONA\n MIMGUI")
+
+			else
+				gui.Text("PLAYER INFO/TAB STUFF")
+			end
+		gui.EndChild()
+		gui.SetCursorPos(gui.ImVec2(250 * c.ui.density, 0 * c.ui.density))
+		gui.BeginChild("playerinventoryright", gui.ImVec2(350 * c.ui.density, ih * c.ui.density), true)
+			gui.PushFont(font16)
+			gui.Text(u8"Инвентарь")
+			gui.PopFont()
+			gui.SetCursorPosX(0)
+			if c.inventory.usePaginatedInventory then
+				gui.InventoryContainer(inventory[INVENTORY_CONTAINERS.player], INVENTORY_CONTAINERS.player, MAX_COLUMNS, gui.ImVec2(350 * c.ui.density, 360 * c.ui.density), inventoryPagination.min, inventoryPagination.max)
+				if gui.Button("<##PaginatedInventoryLeft") then
+					inventoryPagination.page = math.max(1, inventoryPagination.page - 1)
+				end
+				gui.SameLine()
+				gui.Text(tostring(inventoryPagination.page))
+				gui.SameLine()
+				if gui.Button(">##PaginatedInventoryRight") then
+					inventoryPagination.page = math.min(5, inventoryPagination.page + 1)
+				end
+
+				inventoryPagination.min = (inventoryPagination.page - 1) * 36
+				inventoryPagination.max = (inventoryPagination.page * 36) - 1
+			else
+				gui.InventoryContainer(inventory[INVENTORY_CONTAINERS.player], INVENTORY_CONTAINERS.player, MAX_COLUMNS, gui.ImVec2(350 * c.ui.density, 360 * c.ui.density))
+			end
+		gui.EndChild()
+		gui.End()
+		
+		if EnhancementsShown[0] then
+			gui.SetNextWindowPos(wpos, 0, gui.ImVec2(1, 0))
+			gui.SetNextWindowSizeConstraints(gui.ImVec2(120, 160), gui.ImVec2(120, 160))
+			gui.Begin("EnhancementsWindow", EnhancementsShown, gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoScrollbar + gui.WindowFlags.NoScrollWithMouse)
+				gui.SetCursorPos(gui.ImVec2(0, 0))
+				gui.InventoryContainer(inventory[INVENTORY_CONTAINERS.enhs], INVENTORY_CONTAINERS.enhs, 2, gui.ImVec2(120, 160))
+			gui.End()
+		end
+
+		gui.PopFont()
+	end
+)
+
+gui.InventoryContainer = function(data, container_id, max_columns, size, min_slot, max_slot)
+	if not min_slot then min_slot = 0 end	
+	if not size then size = gui.ImVec2(50 * col * c.ui.density, 50 * c.ui.density) end
+	local columns = math.max(#data < max_columns and (#data > 0 and #data or 1) or max_columns)
+	gui.BeginChild("#container"..container_id, size, true)
+	if data ~= nil then
+		gui.Columns(math.max(#data < max_columns and (#data > 0 and #data or 1) or max_columns))
+		local max_id = 0
+		for u,item in pairs(data) do
+			max_id = (tonumber(u) > max_id and tonumber(u) or max_id)
+		end
+		if not max_slot then max_slot = max_id
+		else max_slot = math.min(max_slot, max_id)
+		end
+		for u=min_slot, max_slot do
+			gui.SetColumnWidth(-1, 56 * c.ui.density)
+			if data[u] then
+				gui.InventoryItem(data[u], gui.ImVec2(48 * c.ui.density, 48 * c.ui.density), container_id)
+			else
+				gui.Dummy(gui.ImVec2(48 * c.ui.density, 48 * c.ui.density))
+			end
+			if gui.IsItemClicked(1) then
+				
+			end
+			gui.NextColumn()
+		end
+		gui.Columns(1)
+	end
+	gui.EndChild()
+end
+
+gui.InventoryItem = function(item, size, container)
 	gui.PushStyleVarVec2(gui.StyleVar.WindowPadding, gui.ImVec2(0, 0))
 	gui.PushStyleVarVec2(gui.StyleVar.FramePadding, gui.ImVec2(0, 0))
 	gui.PushStyleVarVec2(gui.StyleVar.ItemSpacing, gui.ImVec2(0, 0))
@@ -1413,23 +1776,6 @@ gui.InventoryItemContextMenu = function(container, item)
 
 end
 
-INVENTORY_CONTAINERS = {
-	player = 1, -- игрок
-	accs = 2, -- аксы из 1 сета
-	trunk = 8, -- багажник
-	enhs = 10, -- улучшения 
-	utils = 17, -- инструменты (бронежилет, чемодан)
-	car_paintjob = 18, -- аэрография на машине
-	car_tt = 19, -- тт на машине
-	car_tech = 23, -- тех. модификации на машине
-	car_visual = 12, -- виз. модификации на машине
-	car_plate = 36, -- номер машины
-	skin = 20, -- скины
-	skin_alt = 22, -- скины но по-другому 
-	cardholder = 24, -- бумажник
-	secaccs = 30, -- аксы охранников
-	security = 33, -- инвентарь охранника
-}
 function getContainerTextId(id)
 	for i,v in pairs(INVENTORY_CONTAINERS) do
 		if v == id then return i end
@@ -1447,6 +1793,7 @@ INVENTORY_ACTIONS = {
 }
 
 function handleInventoryEvent(action, data)
+	print(DeepPrint(data))
 	if action == INVENTORY_ACTIONS.init and data then
 		if not data or not data.type then return end
 		if not inventory[data.type] then inventory[data.type] = {} end
@@ -1456,32 +1803,29 @@ function handleInventoryEvent(action, data)
 			inventory[data.type][slot] = item
 		end
 	end
-end
-
-function saveInventoryJson()
-	local j = encodeJson(inventory)
-	local invfile, err = io.open(getWorkingDirectory() .. "/ArizonaMimgui/inventory.json", "w")
-	if invfile then
-		invfile:write(j)
-		invfile:close()
-	else
-		print("Error: could not save inventory persistence data.")
+	if action == INVENTORY_ACTIONS.change and data then
+		if not data or not data.type then return end
+		if not inventory[data.type] then inventory[data.type] = {} end
+		for i, item in pairs(data.items) do
+			local slot = item.slot
+			if item.id then slot = (item.slot + 100 * item.id) end
+			inventory[data.type][slot] = item
+		end
 	end
+	saveInventory()
 end
 
-function loadInventoryJson()
+function saveInventory()
+	persistence.store(getWorkingDirectory() .. "/ArizonaMimgui/inventory-data.lua", inventory)
+end
+
+function loadInventory()
 	local invfile, err = io.open(getWorkingDirectory() .. "/ArizonaMimgui/inventory.json", "r")
-	if invfile then
-		local j = invfile:read("*all")
-		invfile:close()
-		inventory = decodeJson(j)
-		if inventory == nil then inventory = {} end
-	else
-		print("Warning: could not open inventory persistence data.")
-	end
+	inventory = persistence.load(getWorkingDirectory() .. "/ArizonaMimgui/inventory-data.lua")
+	if inventory == nil then inventory = {} end
 end
 
-loadInventoryJson()
+loadInventory()
 ------------------------------------------- MIMGUI FANCIES --------------------------------------------------
 
 function gui.RightText(text)
@@ -1793,7 +2137,7 @@ end
 
 function onScriptTerminate(script, quit)
 	if script == thisScript() then
-		saveInventoryJson()
+		saveInventory()
 	end
 end
 
