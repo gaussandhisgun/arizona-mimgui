@@ -96,6 +96,9 @@ main = {
 	centeredCarInfoPanel = true,
 	replaceInventory = false,
 	replaceTime = false,
+	replacePopups = true,
+	replaceCars = true,
+	replaceNpcDialogs = true,
 },
 ui = {
 	density = 1,
@@ -111,7 +114,7 @@ legacy = {
 },
 inventory = {
 	usePaginatedInventory = false,
-}
+},
 }, "../ArizonaMimgui/config.ini")
 
 local MAX_COLUMNS = 6
@@ -153,8 +156,8 @@ function main()
 	quesada_ntags_load()
 	quesada_nametags_force_state(c.legacy.useNewNametags)
 
-	sampRegisterChatCommand("tinv",function() s.inventory.visible = not s.inventory.visible end)
-	sampRegisterChatCommand("amimset",function() s.settings.visible[0] = not s.settings.visible[0] end)
+	--sampRegisterChatCommand("tinv",function() s.inventory.visible = not s.inventory.visible end)
+	--sampRegisterChatCommand("amimset",function() s.settings.visible[0] = not s.settings.visible[0] end)
 
 	while true do
 		wait(0)
@@ -286,6 +289,12 @@ s = {
 		playedToday = 0,
 		playedHour = 0,
 	},
+	rightclick = {
+		visible = false,
+		slot = 0,
+		container = 0,
+		pos = gui.ImVec2(0,0)
+	}
 
 }
 
@@ -763,7 +772,7 @@ function arz.onArizonaDisplay(packet)
 		end
 		
 		--print(DeepPrint(buttons))
-		return not c.main.disableOriginalInterfaces
+		return not (c.main.disableOriginalInterfaces and c.main.replacePopups)
 	end
 	
 	if string.find(packet.text, "cef.modals.showModal") and string.find(packet.text, "businessInfo") then
@@ -792,7 +801,7 @@ function arz.onArizonaDisplay(packet)
 		s.propertyInfo.image = data.img
 		s.propertyInfo.cd(tonumber(timer) and tonumber(timer) or 7)
 		--print(DeepPrint(buttons))
-		return not c.main.disableOriginalInterfaces
+		return not (c.main.disableOriginalInterfaces and c.main.replacePopups)
 	end
 	
 	if string.find(packet.text, "cef.modals.showModal") and string.find(packet.text, "dialogTip") then
@@ -802,7 +811,7 @@ function arz.onArizonaDisplay(packet)
 		s.questHint.image = data.backgroundImage
 		--nt.addNotification("[i]: " .. text, 7)
 		--print(DeepPrint(buttons))
-		return not c.main.disableOriginalInterfaces
+		return not (c.main.disableOriginalInterfaces and c.main.replacePopups)
 	end
 	
 	if string.find(packet.text, "cef.modals.showModal") and string.find(packet.text, "carMenu") then
@@ -811,7 +820,7 @@ function arz.onArizonaDisplay(packet)
 		s.carinfo.visible = false
 		s.cars.vehicles = {}
 		sendcef("vehicleMenu.loadList")
-		return not c.main.disableOriginalInterfaces
+		return not (c.main.disableOriginalInterfaces and c.main.replaceCars)
 	end
 	
 	if string.find(packet.text, "event.vehicleMenu.pushVehicleItem") then
@@ -845,7 +854,7 @@ function arz.onArizonaDisplay(packet)
 		s.toast.description = data[3]
 		s.toast.cd(data[4])
 		--nt.addNotification("[" .. data[1] .. "] " .. data[2] .. "\n" .. data[3], data[4] / 1000)
-		return not c.main.disableOriginalInterfaces
+		return not (c.main.disableOriginalInterfaces and c.main.replacePopups)
 	end
 	
 	--[[if string.find(packet.text, "event.battlepass.MenuPressKeyBattlePass") then
@@ -888,7 +897,7 @@ function arz.onArizonaDisplay(packet)
 	if string.find(packet.text, "event.setActiveView") then
 		if string.find(packet.text, '`%["NpcDialog"%]`') then
 			s.npc.visible = true
-			return not c.main.disableOriginalInterfaces
+			return not (c.main.disableOriginalInterfaces and c.main.replaceNpcDialogs)
 		end
 		
 		if string.find(packet.text, "'%[%s*null%s*%]'") then
@@ -988,7 +997,7 @@ end
 
 -- Key hint, shown whenever you walk up to something interactive
 local keyHintFrame = gui.OnFrame(
-	function() return s.keyboardHint.visible and not sampIsChatInputActive() and sampIsChatVisible() end,
+	function() return s.keyboardHint.visible and c.main.replacePopups and not sampIsChatInputActive() and sampIsChatVisible() end,
 	function(player)
 		player.HideCursor = true
 --		if s.keyboardHint.visible and not sampIsChatInputActive() then
@@ -1028,7 +1037,7 @@ local downloadFrame = gui.OnFrame(
 
 -- Property info, shown when standing on a house/trailer/business entry pickup
 local propertyHintFrame = gui.OnFrame(
-	function() return s.propertyInfo.visible and not sampIsChatInputActive() and sampIsChatVisible() end,
+	function() return s.propertyInfo.visible and c.main.replacePopups and not sampIsChatInputActive() and sampIsChatVisible() end,
 	function(player)
 		player.HideCursor = true
 		local cpos = getChatPos()
@@ -1036,7 +1045,7 @@ local propertyHintFrame = gui.OnFrame(
 		gui.PushFont(font)
 		gui.SetNextWindowPos(gui.ImVec2(cpos.x, cpos.y), 0, gui.ImVec2(0, 0))	
 		--gui.SetNextWindowSizeConstraints(gui.ImVec2(300, 0), gui.ImVec2(300, sy))
-		gui.Begin("propertyInfo", gui.new.bool(s.keyboardHint.visible and not sampIsChatInputActive()), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
+		gui.Begin("propertyInfo", gui.new.bool(s.keyboardHint.visible and c.main.replacePopups and not sampIsChatInputActive()), gui.WindowFlags.NoTitleBar + gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoInputs)
 		gui.Text(u8(s.propertyInfo.title))
 		--[[
 		if s.propertyInfo.image and s.propertyInfo.image ~= "" then
@@ -1061,7 +1070,7 @@ local propertyHintFrame = gui.OnFrame(
 
 -- Toasts. They show up at random in the bottom middle of the screen, say, when you lock your car.
 local toastFrame = gui.OnFrame(
-	function() return s.toast.visible and sampIsChatVisible() end,
+	function() return s.toast.visible and c.main.replacePopups and sampIsChatVisible() end,
 	function(player)
 		player.HideCursor = true
 		local sx, sy = getScreenResolution()
@@ -1084,7 +1093,7 @@ local toastFrame = gui.OnFrame(
 
 -- Quest hints. These show up in the bottom right of the screen with an ugly ass picture.
 local questHintFrame = gui.OnFrame(
-	function() return s.questHint.visible and sampIsChatVisible() end,
+	function() return s.questHint.visible and c.main.replacePopups and sampIsChatVisible() end,
 	function(player)
 		player.HideCursor = true
 		local sx, sy = getScreenResolution()
@@ -1121,7 +1130,7 @@ local timerFrame = gui.OnFrame(
 
 -- NPC Dialog. For dialogs with NPCs.
 local npcDialogFrame = gui.OnFrame(
-	function() return s.npc.visible end,
+	function() return s.npc.visible and c.main.replaceNpcDialogs end,
 	function(player)
 		local sx, sy = getScreenResolution()
 		gui.SetNextWindowPos(gui.ImVec2(sx - 10, sy - 10), 0, gui.ImVec2(1, 1))
@@ -1156,15 +1165,16 @@ local settingsFrame = gui.OnFrame(
 		for u,m in pairs(c) do
 			if gui.CollapsingHeader(u8(u)) then
 				for i,v in pairs(m) do
+					local readableName = i:gsub("([A-Z])", " %1")
 					if type(v) == "boolean" then
-						gui.Checkbox(u8(i), gui.new.bool(v))
+						gui.Checkbox(u8(readableName), gui.new.bool(v))
 						if gui.IsItemClicked() then
 							c[u][i] = not c[u][i]
 							save()
 						end
 					elseif type(v) == "number" then
 						if cc[u][i].type == "float" then
-							gui.SliderFloat(u8(i), cc[u][i].v, cc[u][i].min, cc[u][i].max)
+							gui.SliderFloat(u8(readableName), cc[u][i].v, cc[u][i].min, cc[u][i].max)
 						end
 					end
 				end
@@ -1189,7 +1199,7 @@ local settingsFrame = gui.OnFrame(
 
 -- fUCKING CARS MENU
 local carsFrame = gui.OnFrame(
-	function() return s.cars.visible and not sampIsDialogActive() and not sampIsChatInputActive() end,
+	function() return s.cars.visible and c.main.replaceCars and not sampIsDialogActive() and not sampIsChatInputActive() end,
 	function(player)
 		local sx, sy = getScreenResolution()
 		gui.PushFont(font)
@@ -1527,25 +1537,171 @@ local timeFrame = gui.OnFrame(
 INVENTORY_CONTAINERS = {
 	player = 1, -- игрок
 	accs = 2, -- аксы из 1 сета
-	trade = 4, -- трейд
+	trade = 3, -- продать в трейде
+	fortrade = 4, -- купить в трейде
+	house = 5, -- шкаф
+	trailer = 6, -- трейлер
+	trash = 7, -- мусорка
 	trunk = 8, -- багажник
+	chest = 9, -- дефолтное улучшение
 	enhs = 10, -- улучшения 
+	craft = 11, -- верстак? возможно, мастерская одежды
+	car_visual = 12, -- виз. модификации на машине
+	shop_buy = 13, -- /ashop? какие-то магазины
+	select_shop = 14, -- ну тут даже я хз
+	tuning = 15, -- половина этих значений вряд ли даже где-то используется
+	store = 16, -- ещё один магазин?
 	utils = 17, -- инструменты (бронежилет, чемодан)
 	car_paintjob = 18, -- аэрография на машине
 	car_tt = 19, -- тт на машине
+	mod_skin = 20, -- ааааа, это модификация скина!
+	workshop = 21, -- вот это - мастерская, а 11 тогда кто
+	skin = 22, -- скины но в инвентаре
 	car_tech = 23, -- тех. модификации на машине
-	car_visual = 12, -- виз. модификации на машине
-	car_plate = 36, -- номер машины
-	skin = 20, -- скины
-	skin_alt = 22, -- скины но по-другому 
 	cardholder = 24, -- бумажник
-	secaccs = 30, -- аксы охранников
+	storehouse = 25, -- склад
+	hotel_backup_room = 26,
+	pawnshop = 27, -- ломбард
+	shop_sell = 28,
+	fam_flat = 29, -- шкаф в фам кв
+	security_acs = 30, -- аксы охранников
+	painting_acs = 31, -- покраска аксов?
+	security_guns = 32, -- оружие охры
 	security = 33, -- инвентарь охранника
+	hotel = 34, -- шкаф отеля
+	fishbag = 35, -- рыбацкая сумка
+	car_plate = 36, -- номер машины
+	view_attach = 37, -- /viewplayer?
+	view_gun_improv = 38,
+	view_improv = 39,
+	view_skin = 40,
+	view_mod_skin = 41,
+	trash_bag = 43,
+	admin_fund = 46,
+	fam_house = 47,
+	social_house = 48,
+	warehouse_matter = 49,
+}
+
+VIEW_IDs = {
+	Menu= 0,
+	Trade= 32,
+	Warehouse= 35,
+	Vehicle= 30,
+	Shop= 4,
+	Workshop= 31,
+	Character= 27,
+	Security= 28,
+	Repair= 7,
+	ArmourSsharpening= 8,
+	ACSColor= 9,
+	Enchant= 10,
+	ACSDisassembly= 11,
+	SetCharacteristics= 12,
+	HouseFreeze= 13,
+	Wallet= 29,
+	Fishbag= 15,
+	View= 36
+}
+
+ACTIONS_BITS = {
+  Use= 1,
+  Put= 32768,
+  Put_on= 2,
+  Take= 65536,
+  Take_on= 256,
+  Item_open= 64,
+  Item_close= 128,
+  Drop= 4,
+  Split= 8,
+  Clear= 512,
+  Install= 1024,
+  Edit= 2048,
+  Open= 4096,
+  Rent= 8192,
+  Color= 16384,
+  Info= 16,
+  ItemLink= 1048576,
+  Sell= 131072,
+  PutInGift= 262144,
+  Send= 524288,
+  CancelRent= 2097152,
+  Rating= 4194304,
+  Close= 32
+}
+ACTIONS_NAMES = {
+  Use= "Использовать",
+  Put= "Положить",
+  Put_on= "Надеть",
+  Take= "Забрать",
+  Take_on= "Снять",
+  Item_open= "Открыть",
+  Item_close= "Закрыть",
+  Drop= "Выбросить",
+  Split= "Разделить",
+  Clear= "Очистить",
+  Install= "Установить",
+  Edit= "Изменить",
+  Open= "Открыть",
+  Rent= "Сдать в аренду",
+  Color= "Покрасить",
+  Info= "Свойства",
+  ItemLink= "Упомянуть",
+  Sell= "Продать",
+  PutInGift= "Подарить",
+  Send= "Отправить",
+  CancelRent= "Отменить аренду",
+  Rating= "Рейтинг",
+  Close= "Закрыть"
+}
+BUTTONS_BITS = {
+  Inventory= 1,
+  Security= 4,
+  CarInventory= 2,
+  Chest= 2048,
+  HotelRoom= 8,
+  Trunk= 16,
+  FamFlat= 32,
+  House= 64,
+  Trailer= 128,
+  Storehouse= 256,
+  Pawnshop= 512,
+  Trash= 1024,
+  TrashBag= 32768,
+  SocialHouse= 65536
+}
+
+SECURITY_STUFF = {
+	[INVENTORY_CONTAINERS.security] = true,
+	[INVENTORY_CONTAINERS.security_acs] = true,
+	[INVENTORY_CONTAINERS.security_guns] = true
+}
+WAREHOUSES = {
+	[INVENTORY_CONTAINERS.chest] = true,
+	[INVENTORY_CONTAINERS.house] = true,
+	[INVENTORY_CONTAINERS.storehouse] = true,
+	[INVENTORY_CONTAINERS.pawnshop] = true,
+	[INVENTORY_CONTAINERS.trailer] = true,
+	[INVENTORY_CONTAINERS.trash] = true,
+	[INVENTORY_CONTAINERS.trunk] = true,
+	[INVENTORY_CONTAINERS.hotel] = true,
+	[INVENTORY_CONTAINERS.fam_flat] = true,
+	[INVENTORY_CONTAINERS.trash_bag] = true,
+	[INVENTORY_CONTAINERS.admin_fund] = true,
+	[INVENTORY_CONTAINERS.fam_house] = true,
+	[INVENTORY_CONTAINERS.social_house] = true,
+	[INVENTORY_CONTAINERS.warehouse_matter] = true,
 }
 
 local inventoriesHandledElsewhere = {
 	[INVENTORY_CONTAINERS.player] = true,
+	[INVENTORY_CONTAINERS.accs] = true,
+	[INVENTORY_CONTAINERS.enhs] = true,
+	[INVENTORY_CONTAINERS.skin] = true,
+	[INVENTORY_CONTAINERS.utils] = true,
 }
+
+
 
 local invFrame = gui.OnFrame(
 	function() return false and s.inventory.visible and c.main.replaceInventory and not sampIsDialogActive() and not sampIsChatInputActive() end,
@@ -1590,6 +1746,8 @@ local PlayerSet = 1
 
 local EnhancementsShown = gui.new.bool(false)
 
+local move = {}
+
 local playerInventory = gui.OnFrame(
 	function() return s.inventory.visible and c.main.replaceInventory and not sampIsDialogActive() and not sampIsChatInputActive() end,
 	function(player)
@@ -1619,7 +1777,7 @@ local playerInventory = gui.OnFrame(
 				gui.InventoryContainer(inventory[INVENTORY_CONTAINERS.accs], INVENTORY_CONTAINERS.accs, 3, gui.ImVec2(170 * c.ui.density, 110 * c.ui.density), (PlayerSet - 1) * 6, (PlayerSet * 6) - 1)
 				--gui.SetCursorPos(gui.GetCursorPos() + gui.ImVec2(0, -80 * c.ui.density))
 				
-				gui.InventoryItem(inventory[INVENTORY_CONTAINERS.skin_alt][PlayerSet - 1], gui.ImVec2(48 * c.ui.density, 48*c.ui.density), 22)
+				gui.InventoryItem(inventory[INVENTORY_CONTAINERS.skin][PlayerSet - 1], gui.ImVec2(48 * c.ui.density, 48*c.ui.density), 22)
 				gui.SameLine(100 * c.ui.density)
 				gui.InventoryContainer(inventory[INVENTORY_CONTAINERS.utils], INVENTORY_CONTAINERS.utils, 2, gui.ImVec2(115 * c.ui.density, 58 * c.ui.density), (PlayerSet - 1) * 2, (PlayerSet * 2) - 1)
 				
@@ -1685,6 +1843,10 @@ local playerInventory = gui.OnFrame(
 			else
 				gui.InventoryContainer(inventory[INVENTORY_CONTAINERS.player], INVENTORY_CONTAINERS.player, MAX_COLUMNS, gui.ImVec2(350 * c.ui.density, 360 * c.ui.density))
 			end
+			gui.SetCursorPos(gui.ImVec2((350 - 100) * c.ui.density, (ih - 30) * c.ui.density))
+			if gui.Button(u8"Закрыть", gui.ImVec2(95 * c.ui.density, 25 * c.ui.density)) then
+				sendcef("inventoryClose")
+			end
 		gui.EndChild()
 		gui.End()
 		
@@ -1702,8 +1864,14 @@ local playerInventory = gui.OnFrame(
 )
 
 gui.InventoryContainer = function(data, container_id, max_columns, size, min_slot, max_slot)
-	if not min_slot then min_slot = 0 end	
+	if not min_slot then min_slot = 0 end
 	if not size then size = gui.ImVec2(50 * col * c.ui.density, 50 * c.ui.density) end
+	if not data then 
+		local c = gui.GetCursorPos()
+		gui.Text(u8"Данные контейнера не загружены.\nВы загрузили скрипт впервые без перезахода в игру?\n\nПереподключитесь к серверу (/rec), чтобы загрузить данные.")
+		gui.SetCursorPos(c)
+		gui.Dummy(size)
+	return end
 	local columns = math.max(#data < max_columns and (#data > 0 and #data or 1) or max_columns)
 	gui.BeginChild("#container"..container_id, size, true)
 	if data ~= nil then
@@ -1722,9 +1890,6 @@ gui.InventoryContainer = function(data, container_id, max_columns, size, min_slo
 			else
 				gui.Dummy(gui.ImVec2(48 * c.ui.density, 48 * c.ui.density))
 			end
-			if gui.IsItemClicked(1) then
-				
-			end
 			gui.NextColumn()
 		end
 		gui.Columns(1)
@@ -1733,6 +1898,12 @@ gui.InventoryContainer = function(data, container_id, max_columns, size, min_slo
 end
 
 gui.InventoryItem = function(item, size, container)
+	if not item then 
+		local c = gui.GetCursorPos()
+		gui.Text(u8"Данные контейнера не загружены.\nВы загрузили скрипт впервые без перезахода в игру?\n\nПереподключитесь к серверу (/rec), чтобы загрузить данные.")
+		gui.SetCursorPos(c)
+		gui.Dummy(size)
+	return end
 	gui.PushStyleVarVec2(gui.StyleVar.WindowPadding, gui.ImVec2(0, 0))
 	gui.PushStyleVarVec2(gui.StyleVar.FramePadding, gui.ImVec2(0, 0))
 	gui.PushStyleVarVec2(gui.StyleVar.ItemSpacing, gui.ImVec2(0, 0))
@@ -1746,6 +1917,39 @@ gui.InventoryItem = function(item, size, container)
 		gui.WebImage(cdn.res[rescdn] .. "/projects/arizona-rp/assets/images/donate/" .. item.item .. ".png", size)
 	else
 		gui.Dummy(size)
+	end
+	if gui.IsItemClicked(0) then
+		--sampAddChatMessage("click",-1)
+		if not move.active then move = {
+			active = true,
+			from = {
+				slot = item.slot,
+				type = container
+			}
+		}
+		else
+			if move.active and not (
+				move.from.slot == item.slot and
+				move.from.container == container
+			) then
+				move.to = {
+					slot = item.slot,
+					type = container
+				}
+				move.active = nil
+				local send = "ЬНinventory.moveItem|" .. encodeJson(move)
+				--print(send)
+				sendcef(send)
+				move = {}
+			end
+		end
+	end
+	if gui.IsItemClicked(1) then
+		sendcef('rightClickOnBlock|' .. encodeJson({slot = item.slot, type = container}))
+		s.rightclick.container = container
+		s.rightclick.slot = item.slot
+		s.rightclick.pos = gui.ImVec2(getCursorPos())
+		s.rightclick.visible = true
 	end
 	gui.SetCursorPos(gui.ImVec2(0,0))
 	if item.text then gui.Text(u8(item.text)) end
@@ -1761,6 +1965,38 @@ gui.InventoryItem = function(item, size, container)
 	end
 end
 
+function checkkey(value, id)
+	return ((bit.band(value, id) == id) or nil)
+end
+
+local rightclickmenu = gui.OnFrame(
+	function() return s.rightclick.visible and not sampIsDialogActive() and not sampIsChatInputActive() end,
+	function() 
+		gui.PushFont(font)
+		gui.SetNextWindowPos(s.rightclick.pos, _, gui.ImVec2(0, 0))
+		gui.Begin("Rightclick", gui.new.bool(s.rightclick.visible and not sampIsDialogActive() and not sampIsChatInputActive()), gui.WindowFlags.AlwaysAutoResize + gui.WindowFlags.NoTitleBar)
+		if inventory[s.rightclick.container] and inventory[s.rightclick.container][s.rightclick.slot] and inventory[s.rightclick.container][s.rightclick.slot].bits then
+			for i,v in pairs(ACTIONS_BITS) do
+				if checkkey(inventory[s.rightclick.container][s.rightclick.slot].bits, v) then
+					if gui.Button(u8(ACTIONS_NAMES[i]), gui.ImVec2(100 * c.ui.density, 25 * c.ui.density)) then
+						if v == ACTIONS_BITS.ItemLink then 
+							sampSetChatInputEnabled(true)
+							local str = sampGetChatInputText()
+							sampSetChatInputText(str .. " :slot" .. s.rightclick.slot .. "_" .. s.rightclick.container .. ": ")
+						else
+							sendcef('clickOnButton|' .. encodeJson({type = s.rightclick.container, slot = s.rightclick.slot, action = v}))
+						end
+						s.rightclick.visible = false
+					end
+				end
+			end
+		end
+		gui.End()
+		gui.PopFont()
+		if not s.inventory.visible then s.rightclick.visible = false end
+	end
+)
+
 function getItemHint(item)
 	local s = items_data[tonumber(item.item)].name
 	s = s .. ((items_data[tonumber(item.item)].type and itemtypes[items_data[tonumber(item.item)].type]) and "\n" .. u8(itemtypes[items_data[tonumber(item.item)].type]) or "")
@@ -1770,10 +2006,6 @@ function getItemHint(item)
 	s = s .. ((items_data[tonumber(item.item)].acs_slot and items_data[tonumber(item.item)].acs_slot ~= -1) and u8("\nАксессуар для слота: ") .. items_data[tonumber(item.item)].acs_slot or "")
 	s = s .. u8("\nСлот: ") .. item.slot
 	return s
-end
-
-gui.InventoryItemContextMenu = function(container, item)
-
 end
 
 function getContainerTextId(id)
@@ -1812,6 +2044,17 @@ function handleInventoryEvent(action, data)
 			inventory[data.type][slot] = item
 		end
 	end
+	if action == INVENTORY_ACTIONS.infoData then
+		if not data or not data.type or not data.slot then return end
+		if not inventory[data.type] then inventory[data.type] = {} end
+		if not inventory[data.type][data.slot] then inventory[data.type][data.slot] = {
+			slot = data.slot,
+			available = 1,
+			blackout = 0
+		}
+		end
+		inventory[data.type][data.slot].bits = data.bits
+	end
 	saveInventory()
 end
 
@@ -1820,8 +2063,10 @@ function saveInventory()
 end
 
 function loadInventory()
-	local invfile, err = io.open(getWorkingDirectory() .. "/ArizonaMimgui/inventory.json", "r")
-	inventory = persistence.load(getWorkingDirectory() .. "/ArizonaMimgui/inventory-data.lua")
+	local invfile, err = io.open(getWorkingDirectory() .. "/ArizonaMimgui/inventory-data.lua", "r")
+	if invfile then
+		inventory = persistence.load(getWorkingDirectory() .. "/ArizonaMimgui/inventory-data.lua")
+	end
 	if inventory == nil then inventory = {} end
 end
 
